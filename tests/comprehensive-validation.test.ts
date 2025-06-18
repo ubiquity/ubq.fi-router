@@ -217,8 +217,9 @@ describe("Comprehensive Service Validation", () => {
           console.log(`   🎯 Plugin name: ${plugin}`)
           console.log(`   🟦 Target URL: ${targetUrl}`)
 
-          // Check manifest
-          const manifestResult = await checkPluginManifest(targetUrl.replace(/\/.*$/, ''))
+          // Check manifest - extract base URL properly
+          const baseUrl = new URL(targetUrl).origin
+          const manifestResult = await checkPluginManifest(baseUrl)
           console.log(`   ${manifestResult.exists ? '✅' : '❌'} Manifest exists`)
           console.log(`   ${manifestResult.valid ? '✅' : '❌'} Manifest valid`)
 
