@@ -65,27 +65,33 @@ async function discoverServices(subdomain: string, url: URL): Promise<ServiceTyp
  * Returns: "plugin-deno", "plugin-pages", "plugin-both", or "plugin-none"
  */
 async function discoverPlugin(hostname: string, url: URL, kvNamespace: any): Promise<ServiceType> {
-  const [pluginDenoUrl, pluginPagesUrl] = await Promise.all([
-    buildPluginUrl(hostname, url, kvNamespace),
-    buildPluginPagesUrl(hostname, url, kvNamespace)
-  ])
+  try {
+    const [pluginDenoUrl, pluginPagesUrl] = await Promise.all([
+      buildPluginUrl(hostname, url, kvNamespace),
+      buildPluginPagesUrl(hostname, url, kvNamespace)
+    ])
 
-  const denoManifestUrl = `${pluginDenoUrl.replace(url.pathname + url.search, '')}/manifest.json`
-  const pagesManifestUrl = `${pluginPagesUrl.replace(url.pathname + url.search, '')}/manifest.json`
+    const denoManifestUrl = `${pluginDenoUrl.replace(url.pathname + url.search, '')}/manifest.json`
+    const pagesManifestUrl = `${pluginPagesUrl.replace(url.pathname + url.search, '')}/manifest.json`
 
-  // Check both platforms in parallel for better performance
-  const [denoExists, pagesExists] = await Promise.all([
-    pluginExists(denoManifestUrl),
-    pluginExists(pagesManifestUrl)
-  ])
+    // Check both platforms in parallel for better performance
+    const [denoExists, pagesExists] = await Promise.all([
+      pluginExists(denoManifestUrl),
+      pluginExists(pagesManifestUrl)
+    ])
 
-  if (denoExists && pagesExists) {
-    return "plugin-both"
-  } else if (denoExists) {
-    return "plugin-deno"
-  } else if (pagesExists) {
-    return "plugin-pages"
-  } else {
+    if (denoExists && pagesExists) {
+      return "plugin-both"
+    } else if (denoExists) {
+      return "plugin-deno"
+    } else if (pagesExists) {
+      return "plugin-pages"
+    } else {
+      return "plugin-none"
+    }
+  } catch (error) {
+    // Plugin name validation failed (unknown plugin), return plugin-none
+    console.log(`Plugin discovery failed for ${hostname}:`, (error as Error).message)
     return "plugin-none"
   }
 }
