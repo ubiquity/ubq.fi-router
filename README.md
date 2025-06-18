@@ -1,127 +1,210 @@
-# UBQ.FI Router - TypeScript Setup
+# UBQ.FI Router - TypeScript Cloudflare Worker
 
-A Cloudflare Worker that routes requests from ubq.fi domains to either Deno Deploy or Cloudflare Pages with intelligent caching and service discovery.
+A high-performance Cloudflare Worker that intelligently routes requests from ubq.fi domains to either Deno Deploy or Cloudflare Pages with advanced caching, service discovery, and request coalescing.
 
-## Overview
+## 🎯 Overview
 
-This Cloudflare Worker routes requests from ubq.fi domains to either:
-1. **Deno Deploy** (prioritized) - *.deno.dev
-2. **Cloudflare Pages** (fallback) - *.pages.dev
+This TypeScript-based Cloudflare Worker provides:
+- **Intelligent Routing**: Automatically routes requests to available services
+- **Performance Optimization**: Request coalescing, parallel discovery, and streaming responses
+- **Advanced Caching**: KV-based service discovery caching with intelligent TTL
+- **Professional Development**: Full TypeScript setup with modular architecture
+- **Debug-Friendly**: Comprehensive cache control and monitoring capabilities
+
+## 🏗️ Architecture
+
+### Service Priority
+1. **Deno Deploy** (Primary) - `*.deno.dev`
+2. **Cloudflare Pages** (Fallback) - `*.pages.dev`
+
+### URL Mapping Examples
+| Domain | Deno Deploy | Cloudflare Pages |
+|--------|-------------|------------------|
+| `ubq.fi` | `ubq-fi.deno.dev` | `ubq-fi.pages.dev` |
+| `pay.ubq.fi` | `pay-ubq-fi.deno.dev` | `pay-ubq-fi.pages.dev` |
+| `beta.pay.ubq.fi` | `beta-pay-ubq-fi.deno.dev` | `beta.pay-ubq-fi.pages.dev` |
 
 ### Caching Strategy
-- Uses Cloudflare KV to cache service discovery results
-- Cache keys are based on subdomain patterns (e.g., "pay", "beta.pay", "")
-- Cache values indicate which services exist: "deno", "pages", "both", or "none"
-- TTL: 1 hour for existing services, 5 minutes for non-existent (negative caching)
+- **Cache Keys**: Based on subdomain patterns (`"pay"`, `"beta.pay"`, `""`)
+- **Cache Values**: Service availability (`"deno"`, `"pages"`, `"both"`, `"none"`)
+- **TTL Strategy**: 1 hour for existing services, 5 minutes for non-existent
+- **Negative Caching**: Prevents repeated failed discoveries
 
-### Performance Optimizations
-- Parallel service discovery checks
-- Request coalescing to prevent duplicate discoveries
-- Negative caching for 404 responses
+### Performance Features
+- **Parallel Discovery**: Checks both services simultaneously
+- **Request Coalescing**: Prevents duplicate discoveries for same subdomain
+- **Streaming Responses**: No buffering for optimal performance
+- **Intelligent Fallback**: Deno Deploy → Cloudflare Pages → 404
 
-### Routing Logic
-1. Parse incoming domain (ubq.fi, pay.ubq.fi, beta.pay.ubq.fi)
-2. Check cache control headers
-3. If refresh/clear: skip cache and discover services
-4. If normal request: check KV cache first
-5. Try Deno Deploy first, fallback to Cloudflare Pages
-6. Cache the discovery result for future requests
-7. Forward request to the available service
-
-## Setup
+## 🚀 Quick Start
 
 ### Prerequisites
-- [Bun](https://bun.sh/) installed
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed
+- [Bun](https://bun.sh/) runtime
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
 - Cloudflare account with Workers and KV access
 
 ### Installation
-
-1. Install dependencies:
 ```bash
+# Clone and install
 bun install
-```
 
-2. Configure your KV namespace in `wrangler.toml`:
-   - Update the `id` field with your production KV namespace ID
-   - Update the `preview_id` field with your preview KV namespace ID
+# Configure KV namespace in wrangler.toml
+# (Update with your actual KV namespace IDs)
 
-### Development
-
-#### Build the worker:
-```bash
-bun run build
-```
-
-#### Type checking:
-```bash
-bun run type-check
-```
-
-#### Local development:
-```bash
-bun run dev
-```
-
-#### Deploy to Cloudflare:
-```bash
+# Build and deploy
 bun run deploy
 ```
 
-## Project Structure
+## 📋 Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `bun run build` | Build TypeScript to JavaScript |
+| `bun run type-check` | TypeScript type checking |
+| `bun run dev` | Local development server |
+| `bun run deploy` | Build and deploy to Cloudflare |
+
+## 🗂️ Project Structure
 
 ```
 src/
-├── worker.ts           # Main worker entry point
-├── types.ts           # TypeScript type definitions
-├── utils.ts           # URL building and subdomain utilities
-├── service-discovery.ts # Service discovery and coalescing logic
-└── routing.ts         # Request routing and proxying
+├── worker.ts              # Main worker entry point
+├── types.ts              # TypeScript type definitions
+├── utils.ts              # URL building utilities
+├── service-discovery.ts  # Service discovery logic
+└── routing.ts           # Request routing and proxying
+
+dist/                     # Built output (auto-generated)
+├── worker.js            # Bundled worker
+
+docs/                     # Documentation
+├── architecture.md      # System architecture details
+├── api-reference.md     # API and cache control reference
+├── troubleshooting.md   # Common issues and solutions
+└── deployment.md        # Deployment guide
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 ### wrangler.toml
-Update your `wrangler.toml` with your actual KV namespace IDs:
-
 ```toml
+name = "ubq-fi-router"
+main = "dist/worker.js"
+compatibility_date = "2023-12-01"
+
 [[kv_namespaces]]
 binding = "ROUTER_CACHE"
-id = "your-actual-kv-namespace-id"
-preview_id = "your-actual-preview-kv-namespace-id"
+id = "your-kv-namespace-id-here"
+preview_id = "your-preview-kv-namespace-id-here"
+
+[build]
+command = "bun run build"
 ```
 
-### Environment Setup
-The worker expects a KV namespace binding called `ROUTER_CACHE` for caching service discovery results.
+### Environment Variables
+- **ROUTER_CACHE**: KV namespace binding for caching
 
-## Usage
+## 🎛️ Cache Control API
 
-### Cache Control Headers
+### Headers
+| Header Value | Action |
+|--------------|--------|
+| `X-Cache-Control: refresh` | Bypass cache and rediscover services |
+| `X-Cache-Control: clear` | Remove single cache entry |
+| `X-Cache-Control: clear-all` | Remove ALL cache entries |
 
-- `X-Cache-Control: refresh` - Bypasses cache and rediscovers services
-- `X-Cache-Control: clear` - Removes cache entry entirely
-- `X-Cache-Control: clear-all` - Removes ALL cache entries in one shot
+### Usage Examples
+```bash
+# Refresh single service discovery
+curl -H "X-Cache-Control: refresh" https://pay.ubq.fi
 
-### Deployment Debugging Workflow
+# Clear specific cache entry
+curl -H "X-Cache-Control: clear" https://blog.ubq.fi
 
-1. Deploy new service to Deno Deploy
-2. Test with cache refresh: `curl -H "X-Cache-Control: refresh" https://newservice.ubq.fi`
-3. Cache is updated, subsequent requests route correctly
+# Clear entire cache
+curl -H "X-Cache-Control: clear-all" https://ubq.fi
+```
 
-## Architecture
+## 🔧 Development Workflow
 
-The router follows this flow:
-1. Parse incoming domain (ubq.fi, pay.ubq.fi, beta.pay.ubq.fi)
-2. Check cache control headers
-3. If refresh/clear: skip cache and discover services
-4. If normal request: check KV cache first
-5. Try Deno Deploy first, fallback to Cloudflare Pages
-6. Cache the discovery result for future requests
-7. Forward request to the available service
+### Local Development
+```bash
+# Start development server
+bun run dev
 
-## Performance Features
+# In another terminal, test locally
+curl http://localhost:8787 -H "Host: pay.ubq.fi"
+```
 
-- **Parallel service discovery**: Checks both Deno Deploy and Cloudflare Pages simultaneously
-- **Request coalescing**: Prevents duplicate discoveries for the same subdomain
-- **Intelligent caching**: 1 hour TTL for existing services, 5 minutes for 404s
-- **Streaming responses**: No buffering for optimal performance
+### Deployment Process
+```bash
+# Type check
+bun run type-check
+
+# Build
+bun run build
+
+# Deploy
+bun run deploy
+```
+
+### Debugging New Services
+1. Deploy service to Deno Deploy or Cloudflare Pages
+2. Force cache refresh: `curl -H "X-Cache-Control: refresh" https://newservice.ubq.fi`
+3. Verify routing with normal request: `curl https://newservice.ubq.fi`
+
+## 📊 Monitoring
+
+### KV Cache Inspection
+Check your Cloudflare KV namespace for cache entries:
+- Keys follow pattern: `route:{subdomain}`
+- Values: `"deno"`, `"pages"`, `"both"`, or `"none"`
+
+### Performance Metrics
+- **Bundle Size**: ~4.6kb (optimized)
+- **Cache TTL**: 1 hour (success), 5 minutes (404)
+- **Timeout**: 3 seconds per service check
+- **Coalescing**: Prevents duplicate requests
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+**Service shows as available but returns 404**
+- Check if the actual service URL exists
+- Verify URL building logic in `src/utils.ts`
+- Clear cache and refresh: `curl -H "X-Cache-Control: clear" https://domain.ubq.fi`
+
+**Cache not updating**
+- Use `X-Cache-Control: refresh` to force update
+- Check KV namespace configuration
+- Verify cache TTL settings
+
+**Build failures**
+- Run `bun run type-check` for TypeScript errors
+- Ensure all dependencies are installed: `bun install`
+- Check esbuild configuration in `package.json`
+
+See [docs/troubleshooting.md](docs/troubleshooting.md) for detailed solutions.
+
+## 📚 Documentation
+
+- [Architecture Details](docs/architecture.md) - System design and data flow
+- [API Reference](docs/api-reference.md) - Complete API documentation
+- [Deployment Guide](docs/deployment.md) - Production deployment
+- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
+
+## 🤝 Contributing
+
+1. Make changes to TypeScript files in `src/`
+2. Run type checking: `bun run type-check`
+3. Test locally: `bun run dev`
+4. Deploy: `bun run deploy`
+
+## 📄 License
+
+[Your License Here]
+
+---
+
+**Need Help?** Check the [troubleshooting guide](docs/troubleshooting.md) or review the [architecture documentation](docs/architecture.md).

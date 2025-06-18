@@ -58,16 +58,18 @@ async function discoverServices(subdomain: string, url: URL): Promise<ServiceTyp
 }
 
 /**
- * Check if a service exists by testing for 404 responses
- * OPTIMIZED: Reduced timeout for faster failures
+ * Check if a service exists by testing for successful responses
+ * Only 2xx status codes indicate a working service
  */
 async function serviceExists(testUrl: string): Promise<boolean> {
   try {
     const response = await fetch(testUrl, {
       method: 'HEAD',
-      signal: AbortSignal.timeout(3000) // Reduced from 5s to 3s
+      signal: AbortSignal.timeout(3000)
     })
-    return response.status !== 404
+    // Only consider 2xx status codes as "service exists"
+    // This excludes Cloudflare errors (5xx), DNS errors, etc.
+    return response.status >= 200 && response.status < 300
   } catch (error) {
     // Network errors, timeouts, etc. - assume service doesn't exist
     return false
