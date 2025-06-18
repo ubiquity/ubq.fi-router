@@ -9,6 +9,8 @@ import { coalesceDiscovery } from './service-discovery'
 import { routeRequest } from './routing'
 import { getCachedSitemapEntries } from './sitemap-discovery'
 import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
+import { getCachedPluginMapEntries } from './plugin-map-discovery'
+import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
 
 interface Env {
   ROUTER_CACHE: KVNamespace
@@ -37,6 +39,15 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === '/sitemap.json') {
     return await handleSitemapJson(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
+  }
+
+  // Handle plugin-map endpoints
+  if (url.pathname === '/plugin-map.xml') {
+    return await handlePluginMapXml(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
+  }
+
+  if (url.pathname === '/plugin-map.json') {
+    return await handlePluginMapJson(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
   }
 
   // Generate cache key from hostname
@@ -127,5 +138,56 @@ async function handleSitemapJson(kvNamespace: KVNamespace, forceRefresh: boolean
   } catch (error) {
     console.error('Critical error in JSON sitemap handler:', error)
     throw error
+  }
+}
+
+/**
+ * Safe plugin-map generation with timeout
+ */
+async function safePluginMapGeneration(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<any[]> {
+  const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
+
+  console.log('🚀 Starting plugin-map generation with timeout protection')
+
+  // Race between plugin-map generation and timeout
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Plugin-map generation timeout')), TIMEOUT_MS)
+  })
+
+  const pluginMapPromise = getCachedPluginMapEntries(kvNamespace, forceRefresh, githubToken)
+
+  const entries = await Promise.race([pluginMapPromise, timeoutPromise]) as any[]
+
+  console.log(`✅ Plugin-map generation completed with ${entries.length} entries`)
+  return entries
+}
+
+/**
+ * Handle XML plugin-map requests
+ */
+async function handlePluginMapXml(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<Response> {
+  try {
+    const entries = await safePluginMapGeneration(kvNamespace, forceRefresh, githubToken)
+    const xmlContent = generateXmlPluginMap(entries)
+    return createXmlPluginMapResponse(xmlContent)
+  } catch (error) {
+    console.error('Critical error in XML plugin-map handler:', error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return new Response(`Plugin-map XML error: ${errorMessage}`, { status: 500 })
+  }
+}
+
+/**
+ * Handle JSON plugin-map requests
+ */
+async function handlePluginMapJson(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<Response> {
+  try {
+    const entries = await safePluginMapGeneration(kvNamespace, forceRefresh, githubToken)
+    const jsonContent = generateJsonPluginMap(entries)
+    return createJsonPluginMapResponse(jsonContent)
+  } catch (error) {
+    console.error('Critical error in JSON plugin-map handler:', error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return new Response(`Plugin-map JSON error: ${errorMessage}`, { status: 500 })
   }
 }

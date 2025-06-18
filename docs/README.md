@@ -111,7 +111,7 @@ The router uses:
 ## 🎯 Key Features
 
 ### Performance
-- **~4.6kb bundle size** - Optimized for fast execution
+- **~23kb bundle size** - Optimized for fast execution
 - **Parallel service discovery** - Checks both platforms simultaneously
 - **Request coalescing** - Prevents duplicate work
 - **Streaming responses** - No memory overhead
@@ -127,6 +127,13 @@ The router uses:
 - **Modular architecture** - Clean separation of concerns
 - **Comprehensive debugging** - Cache control and monitoring tools
 - **Professional workflow** - Automated build and deployment
+- **Plugin support** - Intelligent routing for os-* plugin domains with dev alias
+
+### Plugin Routing
+- **Production aliases** - `os-plugin.ubq.fi` → `plugin-main.deno.dev`
+- **Explicit branches** - `os-plugin-main.ubq.fi` → `plugin-main.deno.dev`
+- **Development routing** - `os-plugin-development.ubq.fi` → `plugin-development.deno.dev`
+- **Dev alias** - `os-plugin-dev.ubq.fi` → `plugin-development.deno.dev` (NEW!)
 
 ## 📊 Performance Metrics
 

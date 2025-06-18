@@ -14,8 +14,7 @@ command = "bun run build"
 [observability.logs]
 enabled = true
 
-[vars]
-GITHUB_TOKEN = "placeholder_will_be_overridden_by_env"
+# Environment variables are handled via secrets for security
 
 # Zone-based routing for *.ubq.fi
 [[routes]]

@@ -14,22 +14,28 @@ export async function getPluginName(hostname: string, kvNamespace: any, githubTo
 
   // Extract base name and branch suffix
   const baseName = fullName.substring(3) // Remove 'os-'
-  let pluginName = baseName
-  let branch = 'main'
+  let pluginName: string
+  let branch: string
 
-  // Check for development branch suffix
+  // Check for explicit branch suffixes
   if (baseName.endsWith('-development')) {
     pluginName = baseName.replace(/-development$/, '')
     branch = 'development'
+  } else if (baseName.endsWith('-dev')) {
+    // Handle -dev alias for development
+    pluginName = baseName.replace(/-dev$/, '')
+    branch = 'development'
+  } else if (baseName.endsWith('-main')) {
+    // Handle explicit -main suffix
+    pluginName = baseName.replace(/-main$/, '')
+    branch = 'main'
+  } else {
+    // No suffix = production alias (append -main)
+    pluginName = baseName
+    branch = 'main'
   }
 
-  try {
-    const knownPlugins = await getKnownPlugins(kvNamespace, githubToken)
-
-    // Return plugin name with branch suffix
-    return `${pluginName}-${branch}`
-  } catch (error) {
-    console.error('Error in getPluginName:', error)
-    throw error
-  }
+  // Return plugin name with branch suffix - no GitHub API validation required
+  // The actual validation happens when checking the manifest endpoint
+  return `${pluginName}-${branch}`
 }

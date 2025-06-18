@@ -117,9 +117,13 @@ The router internally performs HEAD requests to determine service availability.
 - **Plugin Name**: `"command-config-main"`
 - **Target URL**: `https://command-config-main.deno.dev`
 
+- **Input**: `os-command-config-development.ubq.fi`
+- **Plugin Name**: `"command-config-development"`
+- **Target URL**: `https://command-config-development.deno.dev`
+
 - **Input**: `os-command-config-dev.ubq.fi`
-- **Plugin Name**: `"command-config-dev"`
-- **Target URL**: `https://command-config-dev.deno.dev`
+- **Plugin Name**: `"command-config-development"` (dev alias)
+- **Target URL**: `https://command-config-development.deno.dev`
 
 ## Cache API
 

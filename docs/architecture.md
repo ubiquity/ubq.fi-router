@@ -89,8 +89,9 @@ graph TD
   // Plugin Routing (os-*.ubq.fi)
   os-command-config.ubq.fi → command-config-main.deno.dev (production alias)
   os-command-config-main.ubq.fi → command-config-main.deno.dev
-  os-command-config-dev.ubq.fi → command-config-dev.deno.dev
-  os-pricing-calculator-feature-ui.ubq.fi → pricing-calculator-feature-ui.deno.dev
+  os-command-config-development.ubq.fi → command-config-development.deno.dev
+  os-command-config-dev.ubq.fi → command-config-development.deno.dev (dev alias)
+  os-pricing-calculator-feature-ui.ubq.fi → pricing-calculator-feature-ui-main.deno.dev
   ```
 
 ### 4. Request Routing (`routing.ts`)

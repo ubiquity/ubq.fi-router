@@ -356,11 +356,29 @@ curl http://localhost:8787 -H "Host: pay.ubq.fi"
    // Plugin without suffix should append -main
    ```
 
-2. **Test both alias and explicit main:**
+2. **Test all plugin URL variations:**
    ```bash
+   # Production alias (should work)
    curl https://os-my-plugin.ubq.fi/manifest.json
+   
+   # Explicit main (should work)
    curl https://os-my-plugin-main.ubq.fi/manifest.json
-   # Both should return same result
+   
+   # Development full name (should work)
+   curl https://os-my-plugin-development.ubq.fi/manifest.json
+   
+   # Development alias (should work)
+   curl https://os-my-plugin-dev.ubq.fi/manifest.json
+   
+   # All should return same result or appropriate deployment
+   ```
+
+3. **Verify dev alias functionality:**
+   ```bash
+   # Both dev URLs should resolve to same target
+   curl https://os-plugin-dev.ubq.fi/manifest.json
+   curl https://os-plugin-development.ubq.fi/manifest.json
+   # Both should route to plugin-development.deno.dev
    ```
 
 #### Manifest Validation Failing
