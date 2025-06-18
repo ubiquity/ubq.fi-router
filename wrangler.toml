@@ -9,3 +9,6 @@ preview_id = "01f073a865f742088b1d8c7dd348442b"
 
 [build]
 command = "bun run build"
+
+[observability.logs]
+enabled = true
