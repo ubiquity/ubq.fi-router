@@ -1,0 +1,11 @@
+name = "ubq-fi-router"
+main = "dist/worker.js"
+compatibility_date = "2023-12-01"
+
+[[kv_namespaces]]
+binding = "ROUTER_CACHE"
+id = "your-kv-namespace-id-here"
+preview_id = "your-preview-kv-namespace-id-here"
+
+[build]
+command = "bun run build"

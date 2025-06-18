@@ -1,0 +1,19 @@
+{
+  "name": "ubq-fi-router",
+  "version": "1.0.0",
+  "description": "UBQ.FI Router with Deno Deploy Prioritization and KV Caching",
+  "main": "dist/worker.js",
+  "scripts": {
+    "build": "esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --target=es2022",
+    "dev": "wrangler dev",
+    "deploy": "bun run build && wrangler deploy",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20231218.0",
+    "@types/node": "^20.10.0",
+    "esbuild": "^0.19.8",
+    "typescript": "^5.3.2",
+    "wrangler": "^3.19.0"
+  }
+}

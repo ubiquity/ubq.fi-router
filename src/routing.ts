@@ -1,0 +1,57 @@
+import type { ServiceType } from './types'
+import { buildDenoUrl, buildPagesUrl } from './utils'
+
+/**
+ * Route the request based on service availability
+ * OPTIMIZED: Streams responses for better performance
+ */
+export async function routeRequest(request: Request, url: URL, subdomain: string, serviceType: ServiceType): Promise<Response> {
+  switch (serviceType) {
+    case "deno":
+      return await proxyRequest(request, buildDenoUrl(subdomain, url))
+
+    case "pages":
+      return await proxyRequest(request, buildPagesUrl(subdomain, url))
+
+    case "both":
+      // Try Deno first, fallback to Pages on 404
+      const denoUrl = buildDenoUrl(subdomain, url)
+      const denoResponse = await proxyRequest(request, denoUrl)
+
+      if (denoResponse.status === 404) {
+        // Important: consume the body to free up resources
+        await denoResponse.arrayBuffer()
+        return await proxyRequest(request, buildPagesUrl(subdomain, url))
+      }
+
+      return denoResponse
+
+    case "none":
+    default:
+      return new Response('Service not found', { status: 404 })
+  }
+}
+
+/**
+ * Proxy the request to the target URL
+ * OPTIMIZED: Pass through response without buffering for streaming
+ */
+async function proxyRequest(request: Request, targetUrl: string): Promise<Response> {
+  // Create new request with target URL but preserve original request properties
+  const modifiedRequest = new Request(targetUrl, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+    redirect: 'manual'
+  })
+
+  const response = await fetch(modifiedRequest)
+
+  // Return response directly to enable streaming
+  // Cloudflare Workers will automatically stream the response body
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  })
+}
