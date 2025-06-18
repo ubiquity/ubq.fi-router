@@ -32,6 +32,14 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     return new Response('Cache cleared', { status: 200 })
   }
 
+  if (cacheControl === 'clear-all') {
+    // Clear all route cache entries
+    const { keys } = await env.ROUTER_CACHE.list({ prefix: 'route:' })
+    const deletePromises = keys.map(key => env.ROUTER_CACHE.delete(key.name))
+    await Promise.all(deletePromises)
+    return new Response(`Cleared ${keys.length} cache entries`, { status: 200 })
+  }
+
   let serviceType: ServiceType
 
   if (cacheControl === 'refresh') {

@@ -4,8 +4,8 @@ compatibility_date = "2023-12-01"
 
 [[kv_namespaces]]
 binding = "ROUTER_CACHE"
-id = "your-kv-namespace-id-here"
-preview_id = "your-preview-kv-namespace-id-here"
+id = "01f073a865f742088b1d8c7dd348442b"
+preview_id = "01f073a865f742088b1d8c7dd348442b"
 
 [build]
 command = "bun run build"

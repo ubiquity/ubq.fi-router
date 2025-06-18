@@ -100,6 +100,7 @@ The worker expects a KV namespace binding called `ROUTER_CACHE` for caching serv
 
 - `X-Cache-Control: refresh` - Bypasses cache and rediscovers services
 - `X-Cache-Control: clear` - Removes cache entry entirely
+- `X-Cache-Control: clear-all` - Removes ALL cache entries in one shot
 
 ### Deployment Debugging Workflow
 

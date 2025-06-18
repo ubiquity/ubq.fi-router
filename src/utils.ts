@@ -47,7 +47,6 @@ export function buildPagesUrl(subdomain: string, url: URL): string {
   } else {
     // Subdomain: pay.ubq.fi -> pay-ubq-fi.pages.dev
     // Branch: beta.pay.ubq.fi -> beta.pay-ubq-fi.pages.dev
-    const pagesSubdomain = subdomain.replace(/\./g, '.')
-    return `https://${pagesSubdomain}-ubq-fi.pages.dev${url.pathname}${url.search}`
+    return `https://${subdomain}-ubq-fi.pages.dev${url.pathname}${url.search}`
   }
 }
