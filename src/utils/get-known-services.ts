@@ -26,7 +26,8 @@ export async function getKnownServices(kvNamespace: any, githubToken: string): P
 
     // Fetch from GitHub API with centralized token and timeout
     const headers: Record<string, string> = {
-      'Authorization': `token ${githubToken}`
+      'Authorization': `Bearer ${githubToken}`,
+      'User-Agent': 'ubq.fi-router/1.0'
     }
     console.log('🔑 Using GitHub token for services API request')
 

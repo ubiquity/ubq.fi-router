@@ -25,7 +25,8 @@ export async function getKnownPlugins(kvNamespace: any, githubToken: string): Pr
 
     // Fetch from GitHub API with centralized token and timeout
     const headers: Record<string, string> = {
-      'Authorization': `token ${githubToken}`
+      'Authorization': `Bearer ${githubToken}`,
+      'User-Agent': 'ubq.fi-router/1.0'
     }
     console.log('🔑 Using GitHub token for API request')
 

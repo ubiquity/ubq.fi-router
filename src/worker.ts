@@ -123,7 +123,8 @@ async function handleSitemapXml(kvNamespace: KVNamespace, forceRefresh: boolean,
     return createXmlResponse(xmlContent)
   } catch (error) {
     console.error('Critical error in XML sitemap handler:', error)
-    throw error
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return new Response(`Sitemap XML error: ${errorMessage}`, { status: 500 })
   }
 }
 
@@ -137,7 +138,8 @@ async function handleSitemapJson(kvNamespace: KVNamespace, forceRefresh: boolean
     return createJsonResponse(jsonContent)
   } catch (error) {
     console.error('Critical error in JSON sitemap handler:', error)
-    throw error
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return new Response(`Sitemap JSON error: ${errorMessage}`, { status: 500 })
   }
 }
 
