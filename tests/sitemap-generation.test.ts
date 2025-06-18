@@ -153,19 +153,25 @@ describe("Sitemap Generation", () => {
     }
     
     try {
+      // Use GitHub token for tests
+      const githubToken = process.env.GITHUB_TOKEN
+      if (!githubToken) {
+        throw new Error('GITHUB_TOKEN environment variable is required for tests')
+      }
+      
       // First call should perform discovery
-      const entries1 = await getCachedSitemapEntries(mockKV, false)
+      const entries1 = await getCachedSitemapEntries(mockKV, false, githubToken)
       expect(Array.isArray(entries1)).toBe(true)
       
       // Cache should be populated
       expect(mockKV.data.has('sitemap:entries')).toBe(true)
       
       // Second call should use cache
-      const entries2 = await getCachedSitemapEntries(mockKV, false)
+      const entries2 = await getCachedSitemapEntries(mockKV, false, githubToken)
       expect(entries2).toEqual(entries1)
       
       // Force refresh should bypass cache
-      const entries3 = await getCachedSitemapEntries(mockKV, true)
+      const entries3 = await getCachedSitemapEntries(mockKV, true, githubToken)
       expect(Array.isArray(entries3)).toBe(true)
       
     } finally {

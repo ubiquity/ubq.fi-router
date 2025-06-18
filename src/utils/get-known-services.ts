@@ -1,10 +1,8 @@
-import { GITHUB_TOKEN } from "../env"
-
 /**
  * Fetch known service subdomains from GitHub API with KV caching
  * Looks for repos in ubiquity org that end with .ubq.fi
  */
-export async function getKnownServices(kvNamespace: any): Promise<string[]> {
+export async function getKnownServices(kvNamespace: any, githubToken: string): Promise<string[]> {
   const CACHE_KEY = 'github:service-names'
   const CACHE_TTL = 24 * 60 * 60 // 24 hours
 
@@ -22,9 +20,13 @@ export async function getKnownServices(kvNamespace: any): Promise<string[]> {
   try {
     console.log('🔍 Fetching service names from GitHub API...')
 
+    if (!githubToken) {
+      throw new Error('GITHUB_TOKEN is required but not provided')
+    }
+
     // Fetch from GitHub API with centralized token and timeout
     const headers: Record<string, string> = {
-      'Authorization': `token ${GITHUB_TOKEN}`
+      'Authorization': `token ${githubToken}`
     }
     console.log('🔑 Using GitHub token for services API request')
 

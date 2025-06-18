@@ -12,7 +12,7 @@ import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonR
 
 interface Env {
   ROUTER_CACHE: KVNamespace
-  GITHUB_TOKEN?: string
+  GITHUB_TOKEN: string
 }
 
 export default {
@@ -22,6 +22,11 @@ export default {
 }
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
+  // Validate required environment variables
+  if (!env.GITHUB_TOKEN) {
+    throw new Error('GITHUB_TOKEN environment variable is required but not found')
+  }
+
   const url = new URL(request.url)
   const cacheControl = request.headers.get('X-Cache-Control') as CacheControlValue
 
@@ -73,13 +78,13 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   }
 
   // Route based on discovered/cached service availability
-  return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE)
+  return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE, env.GITHUB_TOKEN)
 }
 
 /**
  * Safe sitemap generation with timeout
  */
-async function safeSitemapGeneration(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken?: string): Promise<any[]> {
+async function safeSitemapGeneration(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<any[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
   console.log('🚀 Starting sitemap generation with timeout protection')
@@ -100,7 +105,7 @@ async function safeSitemapGeneration(kvNamespace: KVNamespace, forceRefresh: boo
 /**
  * Handle XML sitemap requests
  */
-async function handleSitemapXml(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken?: string): Promise<Response> {
+async function handleSitemapXml(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<Response> {
   try {
     const entries = await safeSitemapGeneration(kvNamespace, forceRefresh, githubToken)
     const xmlContent = generateXmlSitemap(entries)
@@ -114,7 +119,7 @@ async function handleSitemapXml(kvNamespace: KVNamespace, forceRefresh: boolean,
 /**
  * Handle JSON sitemap requests
  */
-async function handleSitemapJson(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken?: string): Promise<Response> {
+async function handleSitemapJson(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<Response> {
   try {
     const entries = await safeSitemapGeneration(kvNamespace, forceRefresh, githubToken)
     const jsonContent = generateJsonSitemap(entries)

@@ -44,7 +44,7 @@ async function fetchPluginManifest(pluginName: string): Promise<PluginManifest |
 /**
  * Discover all standard services (non-plugin subdomains)
  */
-async function discoverStandardServices(kvNamespace: any, githubToken?: string): Promise<ServiceDiscoveryResult[]> {
+async function discoverStandardServices(kvNamespace: any, githubToken: string): Promise<ServiceDiscoveryResult[]> {
   const knownServices = await getKnownServices(kvNamespace, githubToken)
   const results: ServiceDiscoveryResult[] = []
 
@@ -88,7 +88,7 @@ async function discoverStandardServices(kvNamespace: any, githubToken?: string):
 /**
  * Discover all plugin services
  */
-async function discoverPluginServices(kvNamespace: any, githubToken?: string): Promise<ServiceDiscoveryResult[]> {
+async function discoverPluginServices(kvNamespace: any, githubToken: string): Promise<ServiceDiscoveryResult[]> {
   try {
     const knownPlugins = await getKnownPlugins(kvNamespace, githubToken)
     const results: ServiceDiscoveryResult[] = []
@@ -149,7 +149,7 @@ async function discoverPluginServices(kvNamespace: any, githubToken?: string): P
 /**
  * Discover all services and plugins for sitemap generation
  */
-export async function discoverAllServices(kvNamespace: any, githubToken?: string): Promise<SitemapEntry[]> {
+export async function discoverAllServices(kvNamespace: any, githubToken: string): Promise<SitemapEntry[]> {
   console.log('🔍 Starting bulk service discovery for sitemap...')
 
   try {
@@ -190,7 +190,7 @@ export async function discoverAllServices(kvNamespace: any, githubToken?: string
 /**
  * Generate sitemap entries with caching
  */
-export async function getCachedSitemapEntries(kvNamespace: any, forceRefresh = false, githubToken?: string): Promise<SitemapEntry[]> {
+export async function getCachedSitemapEntries(kvNamespace: any, forceRefresh = false, githubToken: string): Promise<SitemapEntry[]> {
   const CACHE_KEY = 'sitemap:entries'
   const CACHE_TTL = 6 * 60 * 60 // 6 hours
 

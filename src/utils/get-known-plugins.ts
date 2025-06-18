@@ -1,9 +1,7 @@
-import { GITHUB_TOKEN } from "../env"
-
 /**
  * Fetch known plugin names from GitHub API with KV caching
  */
-export async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
+export async function getKnownPlugins(kvNamespace: any, githubToken: string): Promise<string[]> {
   const CACHE_KEY = 'github:plugin-names'
   const CACHE_TTL = 24 * 60 * 60 // 24 hours
 
@@ -21,9 +19,13 @@ export async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
   try {
     console.log('🔍 Fetching plugin names from GitHub API...')
 
+    if (!githubToken) {
+      throw new Error('GITHUB_TOKEN is required but not provided')
+    }
+
     // Fetch from GitHub API with centralized token and timeout
     const headers: Record<string, string> = {
-      'Authorization': `token ${GITHUB_TOKEN}`
+      'Authorization': `token ${githubToken}`
     }
     console.log('🔑 Using GitHub token for API request')
 

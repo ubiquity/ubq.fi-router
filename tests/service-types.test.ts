@@ -3,7 +3,6 @@ import { coalesceDiscovery } from "../src/service-discovery"
 import { routeRequest } from "../src/routing"
 import { getKnownServices } from "../src/utils"
 import type { ServiceType } from "../src/types"
-import { GITHUB_TOKEN } from "../src/env"
 
 // Real KV namespace mock that stores data in memory
 const realKV = {
@@ -29,6 +28,12 @@ describe("Real Service Type Discovery", () => {
 
   describe("Service Discovery Integration", () => {
     test("should discover service types for real domains", async () => {
+      // Use GitHub token from environment (tests run in Node.js, so process.env is available)
+      const githubToken = process.env.GITHUB_TOKEN
+      if (!githubToken) {
+        throw new Error('GITHUB_TOKEN environment variable is required for tests')
+      }
+
       // Test a few known working domains without showing error messages
       const testCases = [
         { subdomain: "pay", expectType: /^service-(deno|pages|both)$/ },
@@ -40,7 +45,7 @@ describe("Real Service Type Discovery", () => {
           testCase.subdomain,
           new URL(`https://${testCase.subdomain}.ubq.fi`),
           realKV,
-          GITHUB_TOKEN
+          githubToken
         )
         expect(result).toMatch(testCase.expectType)
         console.log(`✅ ${testCase.subdomain}.ubq.fi → ${result}`)
@@ -66,7 +71,11 @@ describe("Real Service Type Discovery", () => {
         const url = new URL("https://test.ubq.fi/path?param=value")
 
         try {
-          const response = await routeRequest(request, url, "test", serviceType, realKV)
+          const githubToken = process.env.GITHUB_TOKEN
+          if (!githubToken) {
+            throw new Error('GITHUB_TOKEN environment variable is required for tests')
+          }
+          const response = await routeRequest(request, url, "test", serviceType, realKV, githubToken)
 
           if (serviceType.endsWith("-none")) {
             expect(response.status).toBe(404)
@@ -90,10 +99,16 @@ describe("Real Service Type Discovery", () => {
     test("should test all real *.ubq.fi services and plugins from GitHub", async () => {
       const discoveredTypes = new Set<ServiceType>()
 
+      // Get GitHub token at the start
+      const githubToken = process.env.GITHUB_TOKEN
+      if (!githubToken) {
+        throw new Error('GITHUB_TOKEN environment variable is required for tests')
+      }
+
       // Get real service subdomains from GitHub ubiquity org
       console.log("🔍 Testing real services from GitHub ubiquity org...")
       try {
-        const knownServices = await getKnownServices(realKV)
+        const knownServices = await getKnownServices(realKV, githubToken)
         console.log(`📋 Found ${knownServices.length} service repos: ${knownServices.join(", ")}`)
 
         // Test each real service subdomain
@@ -104,7 +119,7 @@ describe("Real Service Type Discovery", () => {
               subdomain,
               new URL(`https://${subdomain ? subdomain + "." : ""}ubq.fi`),
               realKV,
-              GITHUB_TOKEN
+              githubToken
             )
             discoveredTypes.add(result)
             console.log(`    ✅ ${subdomain}.ubq.fi → ${result}`)
@@ -127,7 +142,7 @@ describe("Real Service Type Discovery", () => {
             `os-${plugin}`,
             new URL(`https://os-${plugin}.ubq.fi`),
             realKV,
-            GITHUB_TOKEN
+            githubToken
           )
           discoveredTypes.add(result)
           console.log(`    ✅ os-${plugin}.ubq.fi → ${result}`)
@@ -164,13 +179,17 @@ describe("Real Service Type Discovery", () => {
       await realKV.delete(`route:${subdomain}`)
 
       // First discovery should hit the network
+      const githubToken = process.env.GITHUB_TOKEN
+      if (!githubToken) {
+        throw new Error('GITHUB_TOKEN environment variable is required for tests')
+      }
       const start1 = Date.now()
-      const result1 = await coalesceDiscovery(subdomain, url, realKV, GITHUB_TOKEN)
+      const result1 = await coalesceDiscovery(subdomain, url, realKV, githubToken)
       const time1 = Date.now() - start1
 
       // Second discovery should be faster (cached)
       const start2 = Date.now()
-      const result2 = await coalesceDiscovery(subdomain, url, realKV, GITHUB_TOKEN)
+      const result2 = await coalesceDiscovery(subdomain, url, realKV, githubToken)
       const time2 = Date.now() - start2
 
       // Results should be the same
@@ -186,11 +205,15 @@ describe("Real Service Type Discovery", () => {
   describe("Error Handling", () => {
     test("should handle network timeouts gracefully", async () => {
       // Test with a domain that will timeout or fail
+      const githubToken = process.env.GITHUB_TOKEN
+      if (!githubToken) {
+        throw new Error('GITHUB_TOKEN environment variable is required for tests')
+      }
       const result = await coalesceDiscovery(
         "timeout-test",
         new URL("https://timeout-test.ubq.fi"),
         realKV,
-        GITHUB_TOKEN
+        githubToken
       )
 
       // Should gracefully return service-none instead of throwing
@@ -200,11 +223,15 @@ describe("Real Service Type Discovery", () => {
     test("should handle invalid domain formats", async () => {
       try {
         // Test with a simple invalid subdomain that should fail
+        const githubToken = process.env.GITHUB_TOKEN
+        if (!githubToken) {
+          throw new Error('GITHUB_TOKEN environment variable is required for tests')
+        }
         const result = await coalesceDiscovery(
           "invalid-test",
           new URL("https://invalid-test.ubq.fi"),
           realKV,
-          GITHUB_TOKEN
+          githubToken
         )
         expect(result).toMatch(/^(service|plugin)-(deno|pages|both|none)$/)
       } catch (error) {
