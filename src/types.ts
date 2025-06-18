@@ -1,4 +1,12 @@
-export type ServiceType = "deno" | "pages" | "both" | "plugin" | "none"
+export type ServiceType = 
+  | "service-deno" 
+  | "service-pages" 
+  | "service-both" 
+  | "service-none"
+  | "plugin-deno" 
+  | "plugin-pages" 
+  | "plugin-both" 
+  | "plugin-none"
 
 export type CacheControlValue = "refresh" | "clear" | "clear-all" | null
 

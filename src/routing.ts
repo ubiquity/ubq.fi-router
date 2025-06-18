@@ -1,23 +1,20 @@
 import type { ServiceType } from './types'
-import { buildDenoUrl, buildPagesUrl, buildPluginUrl } from './utils'
+import { buildDenoUrl, buildPagesUrl, buildPluginUrl, buildPluginPagesUrl, isPluginDomain } from './utils'
 
 /**
  * Route the request based on service availability
  * OPTIMIZED: Streams responses for better performance
  */
-export async function routeRequest(request: Request, url: URL, subdomain: string, serviceType: ServiceType): Promise<Response> {
+export async function routeRequest(request: Request, url: URL, subdomain: string, serviceType: ServiceType, kvNamespace: any): Promise<Response> {
   switch (serviceType) {
-    case "deno":
+    case "service-deno":
       return await proxyRequest(request, buildDenoUrl(subdomain, url))
 
-    case "pages":
+    case "service-pages":
       return await proxyRequest(request, buildPagesUrl(subdomain, url))
 
-    case "plugin":
-      return await proxyRequest(request, buildPluginUrl(url.hostname, url))
-
-    case "both":
-      // Try Deno first, fallback to Pages on 404
+    case "service-both":
+      // Try regular service on Deno first, fallback to Pages on 404
       const denoUrl = buildDenoUrl(subdomain, url)
       const denoResponse = await proxyRequest(request, denoUrl)
 
@@ -29,7 +26,27 @@ export async function routeRequest(request: Request, url: URL, subdomain: string
 
       return denoResponse
 
-    case "none":
+    case "plugin-deno":
+      return await proxyRequest(request, await buildPluginUrl(url.hostname, url, kvNamespace))
+
+    case "plugin-pages":
+      return await proxyRequest(request, await buildPluginPagesUrl(url.hostname, url, kvNamespace))
+
+    case "plugin-both":
+      // Try plugin on Deno first, fallback to plugin on Pages on 404
+      const pluginDenoUrl = await buildPluginUrl(url.hostname, url, kvNamespace)
+      const pluginDenoResponse = await proxyRequest(request, pluginDenoUrl)
+
+      if (pluginDenoResponse.status === 404) {
+        // Important: consume the body to free up resources
+        await pluginDenoResponse.arrayBuffer()
+        return await proxyRequest(request, await buildPluginPagesUrl(url.hostname, url, kvNamespace))
+      }
+
+      return pluginDenoResponse
+
+    case "service-none":
+    case "plugin-none":
     default:
       return new Response('Service not found', { status: 404 })
   }

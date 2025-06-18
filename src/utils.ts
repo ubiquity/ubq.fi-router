@@ -32,34 +32,106 @@ export function isPluginDomain(hostname: string): boolean {
 }
 
 /**
- * Extract plugin name from plugin domain
+ * Fetch known plugin names from GitHub API with KV caching
+ */
+async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
+  const CACHE_KEY = 'github:plugin-names'
+  const CACHE_TTL = 24 * 60 * 60 // 24 hours
+
+  try {
+    // Try to get from cache first
+    const cached = await kvNamespace.get(CACHE_KEY, { type: 'json' })
+    if (cached && Array.isArray(cached)) {
+      return cached
+    }
+  } catch (error) {
+    console.warn('Failed to read plugin cache:', error)
+  }
+
+  try {
+    // Fetch from GitHub API
+    const response = await fetch('https://api.github.com/orgs/ubiquity-os-marketplace/repos?per_page=100')
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.status}`)
+    }
+
+    const repos = await response.json() as Array<{ name: string }>
+    const pluginNames = repos.map((repo) => repo.name).filter((name: string) => name)
+
+    // Cache the results
+    try {
+      await kvNamespace.put(CACHE_KEY, JSON.stringify(pluginNames), { expirationTtl: CACHE_TTL })
+    } catch (error) {
+      console.warn('Failed to cache plugin names:', error)
+    }
+
+    return pluginNames
+  } catch (error) {
+    console.error('Failed to fetch plugin names from GitHub:', error)
+    throw new Error(`GitHub API failed: ${error}`)
+  }
+}
+
+/**
+ * Find the base plugin name from a potentially suffixed name
+ */
+function findBasePlugin(withoutPrefix: string, knownPlugins: string[]): string | null {
+  // First check if it's an exact match
+  if (knownPlugins.includes(withoutPrefix)) {
+    return withoutPrefix
+  }
+
+  // Try to find base plugin by removing potential suffixes
+  const parts = withoutPrefix.split('-')
+
+  // Try removing one segment at a time from the end
+  for (let i = parts.length - 1; i > 0; i--) {
+    const candidate = parts.slice(0, i).join('-')
+    if (knownPlugins.includes(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+/**
+ * Extract plugin name from plugin domain with GitHub API validation
  * Examples:
  * - os-command-config-main.ubq.fi -> "command-config-main"
- * - os-command-config.ubq.fi -> "command-config-main" (aliased to main)
+ * - os-command-config.ubq.fi -> "command-config-main" (production alias)
+ * - os-command-config-dev.ubq.fi -> "command-config-dev"
+ * - os-text-conversation-rewards.ubq.fi -> "text-conversation-rewards-main"
+ * - os-text-conversation-rewards-pr-123.ubq.fi -> "text-conversation-rewards-pr-123"
  */
-export function getPluginName(hostname: string): string {
+export async function getPluginName(hostname: string, kvNamespace: any): Promise<string> {
   if (!isPluginDomain(hostname)) {
     throw new Error('Not a plugin domain')
   }
-  // Remove 'os-' prefix to get base plugin name
-  const baseName = hostname.split('.')[0].substring(3)
 
-  // List of common deployment suffixes
-  const deploymentSuffixes = ['main', 'dev', 'development', 'staging', 'stage', 'test', 'testing', 'prod', 'production', 'preview', 'beta', 'alpha']
+  const withoutPrefix = hostname.split('.')[0].substring(3)
 
-  // Check if the base name ends with a deployment suffix
-  const endsWithDeploymentSuffix = deploymentSuffixes.some(suffix => baseName.endsWith(`-${suffix}`))
+  try {
+    // Get known plugins from GitHub API (cached)
+    const knownPlugins = await getKnownPlugins(kvNamespace)
 
-  // Check for feature/fix branches (pattern: plugin-feature-name or plugin-fix-name)
-  const hasFeatureBranch = /-(?:feature|fix|hotfix)-.+$/.test(baseName)
+    // Check if exact match (base plugin name)
+    if (knownPlugins.includes(withoutPrefix)) {
+      return `${withoutPrefix}-main`
+    }
 
-  if (!endsWithDeploymentSuffix && !hasFeatureBranch) {
-    // No deployment suffix detected, append -main for production alias
-    return `${baseName}-main`
+    // Check if has valid plugin prefix
+    const basePlugin = findBasePlugin(withoutPrefix, knownPlugins)
+    if (basePlugin) {
+      return withoutPrefix // use as-is (has suffix)
+    }
+
+    // Unknown plugin - fail explicitly
+    throw new Error(`Unknown plugin: ${withoutPrefix}`)
+  } catch (error) {
+    console.error('Error in getPluginName:', error)
+    throw error
   }
-
-  // Has deployment suffix or feature branch, use as-is
-  return baseName
 }
 
 /**
@@ -92,10 +164,19 @@ export function buildPagesUrl(subdomain: string, url: URL): string {
 }
 
 /**
- * Build plugin URL from plugin domain
+ * Build plugin URL from plugin domain (Deno Deploy)
  * Example: os-command-config-main.ubq.fi -> https://command-config-main.deno.dev
  */
-export function buildPluginUrl(hostname: string, url: URL): string {
-  const pluginName = getPluginName(hostname)
+export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: any): Promise<string> {
+  const pluginName = await getPluginName(hostname, kvNamespace)
   return `https://${pluginName}.deno.dev${url.pathname}${url.search}`
+}
+
+/**
+ * Build plugin URL from plugin domain (Cloudflare Pages)
+ * Example: os-command-config-main.ubq.fi -> https://command-config-main.pages.dev
+ */
+export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespace: any): Promise<string> {
+  const pluginName = await getPluginName(hostname, kvNamespace)
+  return `https://${pluginName}.pages.dev${url.pathname}${url.search}`
 }

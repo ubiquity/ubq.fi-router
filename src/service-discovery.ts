@@ -1,5 +1,5 @@
 import type { ServiceType, ServiceDiscoveryResult, PluginManifest } from './types'
-import { buildDenoUrl, buildPagesUrl, buildPluginUrl, isPluginDomain } from './utils'
+import { buildDenoUrl, buildPagesUrl, buildPluginUrl, buildPluginPagesUrl, isPluginDomain } from './utils'
 
 // Request coalescing map to prevent duplicate service discoveries
 const inFlightDiscoveries = new Map<string, Promise<ServiceType>>()
@@ -8,7 +8,7 @@ const inFlightDiscoveries = new Map<string, Promise<ServiceType>>()
  * Coalesce multiple discovery requests for the same subdomain
  * Prevents redundant parallel discoveries
  */
-export async function coalesceDiscovery(subdomain: string, url: URL): Promise<ServiceType> {
+export async function coalesceDiscovery(subdomain: string, url: URL, kvNamespace: any): Promise<ServiceType> {
   const discoveryKey = subdomain
 
   // Check if discovery is already in progress
@@ -20,7 +20,7 @@ export async function coalesceDiscovery(subdomain: string, url: URL): Promise<Se
 
   // Start new discovery and store the promise
   const discoveryPromise = isPluginDomain(url.hostname)
-    ? discoverPlugin(url.hostname, url)
+    ? discoverPlugin(url.hostname, url, kvNamespace)
     : discoverServices(subdomain, url)
   inFlightDiscoveries.set(discoveryKey, discoveryPromise)
 
@@ -36,7 +36,7 @@ export async function coalesceDiscovery(subdomain: string, url: URL): Promise<Se
 /**
  * Discover which services (Deno Deploy, Cloudflare Pages) exist for a subdomain
  * OPTIMIZED: Checks both services in parallel
- * Returns: "deno", "pages", "both", or "none"
+ * Returns: "service-deno", "service-pages", "service-both", or "service-none"
  */
 async function discoverServices(subdomain: string, url: URL): Promise<ServiceType> {
   const denoUrl = buildDenoUrl(subdomain, url)
@@ -49,24 +49,51 @@ async function discoverServices(subdomain: string, url: URL): Promise<ServiceTyp
   ])
 
   if (denoExists && pagesExists) {
-    return "both"
+    return "service-both"
   } else if (denoExists) {
-    return "deno"
+    return "service-deno"
   } else if (pagesExists) {
-    return "pages"
+    return "service-pages"
   } else {
-    return "none"
+    return "service-none"
   }
 }
 
 /**
- * Discover plugin by checking manifest.json endpoint
- * Returns: "plugin" if valid manifest exists, "none" if not
+ * Discover plugin by checking manifest.json endpoint on both platforms
+ * OPTIMIZED: Checks both Deno Deploy and Cloudflare Pages in parallel
+ * Returns: "plugin-deno", "plugin-pages", "plugin-both", or "plugin-none"
  */
-async function discoverPlugin(hostname: string, url: URL): Promise<ServiceType> {
-  const pluginUrl = buildPluginUrl(hostname, url)
-  const manifestUrl = `${pluginUrl.replace(url.pathname + url.search, '')}/manifest.json`
+async function discoverPlugin(hostname: string, url: URL, kvNamespace: any): Promise<ServiceType> {
+  const [pluginDenoUrl, pluginPagesUrl] = await Promise.all([
+    buildPluginUrl(hostname, url, kvNamespace),
+    buildPluginPagesUrl(hostname, url, kvNamespace)
+  ])
 
+  const denoManifestUrl = `${pluginDenoUrl.replace(url.pathname + url.search, '')}/manifest.json`
+  const pagesManifestUrl = `${pluginPagesUrl.replace(url.pathname + url.search, '')}/manifest.json`
+
+  // Check both platforms in parallel for better performance
+  const [denoExists, pagesExists] = await Promise.all([
+    pluginExists(denoManifestUrl),
+    pluginExists(pagesManifestUrl)
+  ])
+
+  if (denoExists && pagesExists) {
+    return "plugin-both"
+  } else if (denoExists) {
+    return "plugin-deno"
+  } else if (pagesExists) {
+    return "plugin-pages"
+  } else {
+    return "plugin-none"
+  }
+}
+
+/**
+ * Check if a plugin exists by validating its manifest.json endpoint
+ */
+async function pluginExists(manifestUrl: string): Promise<boolean> {
   try {
     const response = await fetch(manifestUrl, {
       method: 'GET',
@@ -78,15 +105,13 @@ async function discoverPlugin(hostname: string, url: URL): Promise<ServiceType> 
       const manifest = await response.json() as PluginManifest
 
       // Basic validation - manifest should have name and description
-      if (manifest.name && manifest.description) {
-        return "plugin"
-      }
+      return !!(manifest.name && manifest.description)
     }
 
-    return "none"
+    return false
   } catch (error) {
     // Network errors, timeouts, invalid JSON, etc. - plugin doesn't exist
-    return "none"
+    return false
   }
 }
 
