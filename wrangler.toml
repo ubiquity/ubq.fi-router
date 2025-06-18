@@ -1,6 +1,7 @@
 name = "ubq-fi-router"
 main = "dist/worker.js"
 compatibility_date = "2023-12-01"
+account_id = "5c0228bee348f4cf48829ffe21b61fe9"
 
 [[kv_namespaces]]
 binding = "ROUTER_CACHE"
@@ -12,3 +13,12 @@ command = "bun run build"
 
 [observability.logs]
 enabled = true
+
+# Zone-based routing for *.ubq.fi
+[[routes]]
+pattern = "ubq.fi/*"
+zone_id = "3aa0d877a0b4e3e1dcdc21eb643b13fc"
+
+[[routes]]
+pattern = "*.ubq.fi/*"
+zone_id = "3aa0d877a0b4e3e1dcdc21eb643b13fc"
