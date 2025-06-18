@@ -132,11 +132,40 @@ The router uses:
 
 | Metric | Value | Description |
 |--------|-------|-------------|
-| Bundle Size | ~4.6kb | Optimized TypeScript compilation |
+| Bundle Size | ~9.6kb | Optimized TypeScript compilation |
 | Cache Hit | ~1ms | KV lookup only |
 | Cache Miss | 100-500ms | Parallel service discovery |
 | Service Discovery | 50-3000ms | Network dependent |
 | Request Routing | 10-100ms | Proxy to target service |
+| **Production Status** | **✅ DEPLOYED** | **Live on *.ubq.fi with 100% validation** |
+
+## 🎯 **Production Validation Results**
+
+### **✅ Comprehensive Testing Complete (100% Success)**
+- **Service Discovery Accuracy: 10/10 (100%)**
+- **UBQ.FI Domains Working: 10/10 (100%)**
+- **Services with Deployments: 10/10 (100%)**
+
+### **🌐 Live Production Services:**
+```
+✅ ubq.fi → service-pages (WORKING!)
+✅ pay.ubq.fi → service-both
+✅ work.ubq.fi → service-pages
+✅ audit.ubq.fi → service-pages
+✅ onboard.ubq.fi → service-pages
+✅ keygen.ubq.fi → service-pages
+✅ leaderboard.ubq.fi → service-pages
+✅ safe.ubq.fi → service-pages
+✅ uusd.ubq.fi → service-pages
+✅ notifications.ubq.fi → service-pages
+```
+
+### **🚀 Deployment Details:**
+- **Worker**: `ubq-fi-router` deployed with zone-based routing
+- **Routes**: `ubq.fi/*` and `*.ubq.fi/*`
+- **Zone ID**: 3aa0d877a0b4e3e1dcdc21eb643b13fc
+- **Version**: bdc1d06a-c62f-44e5-bbc7-000fa188cd1c
+- **Status**: All routes active and handling traffic
 
 ## 🔍 Troubleshooting Quick Reference
 

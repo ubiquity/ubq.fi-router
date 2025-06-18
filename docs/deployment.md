@@ -124,37 +124,79 @@ ls -la dist/
 - [ ] Authentication set up (logged in or API token)
 - [ ] Build process successful
 - [ ] Local testing completed
+- [ ] Zone ID and Account ID configured for route-based deployment
+
+### Required Configuration
+Update `wrangler.toml` with zone-based routing for *.ubq.fi domains:
+
+```toml
+name = "ubq-fi-router"
+main = "dist/worker.js"
+compatibility_date = "2023-12-01"
+account_id = "your-account-id-here"
+
+[[kv_namespaces]]
+binding = "ROUTER_CACHE"
+id = "01f073a865f742088b1d8c7dd348442b"
+preview_id = "01f073a865f742088b1d8c7dd348442b"
+
+[build]
+command = "bun run build"
+
+[observability.logs]
+enabled = true
+
+# Zone-based routing for *.ubq.fi
+[[routes]]
+pattern = "ubq.fi/*"
+zone_id = "your-zone-id-here"
+
+[[routes]]
+pattern = "*.ubq.fi/*"
+zone_id = "your-zone-id-here"
+```
 
 ### Deployment Command
 ```bash
+# Set environment variables
+export CLOUDFLARE_API_TOKEN=your-api-token-here
+
 # Single command deployment
 bun run deploy
 ```
 
 This runs:
 1. `bun run build` - TypeScript compilation and bundling
-2. `wrangler deploy` - Upload to Cloudflare Workers
+2. `wrangler deploy` - Upload to Cloudflare Workers with zone routing
 
-### Deployment Output
+### Successful Deployment Output
 ```
-bun run build && wrangler deploy
-esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --target=es2022
-
-  dist/worker.js  4.6kb
-
-⚡ Done in 11ms
-
- ⛅️ wrangler 3.114.9
+⛅️ wrangler 3.114.9
 --------------------------------------------------------
 
-Total Upload: 5.07 KiB / gzip: 1.49 KiB
+[custom build] Running: bun run build
+[custom build] $ esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --target=es2022
+[custom build]   dist/worker.js  9.6kb
+[custom build] ⚡ Done in 13ms
+
+Total Upload: 10.43 KiB / gzip: 2.64 KiB
 Your worker has access to the following bindings:
 - KV Namespaces:
   - ROUTER_CACHE: 01f073a865f742088b1d8c7dd348442b
-Uploaded ubq-fi-router (2.38 sec)
-Deployed ubq-fi-router triggers (0.32 sec)
-  https://ubq-fi-router.ubq.workers.dev
-Current Version ID: 3e13008d-fd51-4b58-ad0e-a671d02e82b1
+Uploaded ubq-fi-router (4.72 sec)
+Deployed ubq-fi-router triggers (1.14 sec)
+  ubq.fi/* (zone id: 3aa0d877a0b4e3e1dcdc21eb643b13fc)
+  *.ubq.fi/* (zone id: 3aa0d877a0b4e3e1dcdc21eb643b13fc)
+Current Version ID: bdc1d06a-c62f-44e5-bbc7-000fa188cd1c
+```
+
+### Critical Post-Deployment Step
+After deployment, clear the cache to ensure the router starts with fresh service discovery:
+
+```bash
+# Clear all cached entries to ensure fresh start
+curl -H "X-Cache-Control: clear-all" https://ubq.fi
+# Expected output: "Cleared N cache entries"
 ```
 
 ## Post-Deployment Verification
