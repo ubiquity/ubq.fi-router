@@ -80,12 +80,9 @@ graph TD
   // Deno Deploy
   ubq.fi → ubq-fi.deno.dev
   pay.ubq.fi → pay-ubq-fi.deno.dev
-  beta.pay.ubq.fi → beta-pay-ubq-fi.deno.dev
-
   // Cloudflare Pages
   ubq.fi → ubq-fi.pages.dev
   pay.ubq.fi → pay-ubq-fi.pages.dev
-  beta.pay.ubq.fi → beta.pay-ubq-fi.pages.dev
   ```
 - **Plugin Mapping Logic**:
   ```typescript
@@ -259,7 +256,6 @@ Plugin discovery validates:
 - **Examples**:
   - `route:` (for ubq.fi)
   - `route:pay` (for pay.ubq.fi)
-  - `route:beta.pay` (for beta.pay.ubq.fi)
   - `plugin:command-config-main` (for plugin cache)
 
 ### Cache Value Types

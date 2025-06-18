@@ -8,6 +8,7 @@ This TypeScript-based Cloudflare Worker provides:
 - **Intelligent Routing**: Automatically routes requests to available services
 - **Plugin System**: Dedicated `os-*.ubq.fi` routing for plugin microservices with production aliases
 - **Service Discovery**: Automatic detection with manifest validation for plugins
+- **Dynamic Sitemaps**: Generates XML and JSON sitemaps with automatic service discovery
 - **Performance Optimization**: Request coalescing, parallel discovery, and streaming responses
 - **Advanced Caching**: KV-based service discovery caching with intelligent TTL
 - **Professional Development**: Full TypeScript setup with modular architecture
@@ -27,7 +28,6 @@ This TypeScript-based Cloudflare Worker provides:
 |--------|----------------|
 | `ubq.fi` | `ubq-fi.deno.dev` (fallback: `ubq-fi.pages.dev`) |
 | `pay.ubq.fi` | `pay-ubq-fi.deno.dev` (fallback: `pay-ubq-fi.pages.dev`) |
-| `beta.pay.ubq.fi` | `beta-pay-ubq-fi.deno.dev` (fallback: `beta.pay-ubq-fi.pages.dev`) |
 
 #### Plugin Services (direct routing)
 | Domain | Target Service | Notes |
@@ -46,7 +46,7 @@ This TypeScript-based Cloudflare Worker provides:
 - **SSL Support**: Uses existing `*.ubq.fi` SSL certificate (zero-cost solution)
 
 ### Caching Strategy
-- **Cache Keys**: Based on subdomain patterns (`"pay"`, `"beta.pay"`, `""`)
+- **Cache Keys**: Based on subdomain patterns (`"pay"`, `""`)
 - **Cache Values**: Service availability (`"deno"`, `"pages"`, `"both"`, `"none"`)
 - **TTL Strategy**: 1 hour for existing services, 5 minutes for non-existent
 - **Negative Caching**: Prevents repeated failed discoveries
@@ -124,6 +124,34 @@ command = "bun run build"
 
 ### Environment Variables
 - **ROUTER_CACHE**: KV namespace binding for caching
+
+## 🗺️ Dynamic Sitemap Generation
+
+The router automatically generates comprehensive sitemaps for all active services and plugins:
+
+### Sitemap Endpoints
+- **XML Sitemap**: `https://ubq.fi/sitemap.xml` - Standard format for search engines
+- **JSON Sitemap**: `https://ubq.fi/sitemap.json` - Machine-readable format for interoperability
+
+### Features
+- **Auto-Discovery**: Finds all active services and plugins across the ecosystem
+- **Rich Metadata**: Includes GitHub repositories, plugin manifests, and priorities
+- **Smart Caching**: 6-hour cache with force refresh support
+- **SEO Optimized**: Proper priority ranking and change frequency
+
+### Usage
+```bash
+# Get XML sitemap
+curl https://ubq.fi/sitemap.xml
+
+# Get JSON sitemap  
+curl https://ubq.fi/sitemap.json
+
+# Force refresh sitemap
+curl -H "X-Cache-Control: refresh" https://ubq.fi/sitemap.xml
+```
+
+See [docs/sitemap.md](docs/sitemap.md) for detailed documentation.
 
 ## 🎛️ Cache Control API
 
@@ -215,6 +243,7 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) for detailed solutions.
 
 - [Architecture Details](docs/architecture.md) - System design and data flow
 - [API Reference](docs/api-reference.md) - Complete API documentation
+- [Sitemap Generation](docs/sitemap.md) - Dynamic sitemap features and configuration
 - [Deployment Guide](docs/deployment.md) - Production deployment
 - [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
 

@@ -1,30 +1,20 @@
 /**
- * Extract subdomain key for caching
- * Examples:
- * - ubq.fi -> ""
- * - pay.ubq.fi -> "pay"
- * - beta.pay.ubq.fi -> "beta.pay"
- * - os-command-config-main.ubq.fi -> "os-command-config-main"
+ * Extract subdomain key from hostname
+ * ubq.fi -> ""
+ * pay.ubq.fi -> "pay"
  */
 export function getSubdomainKey(hostname: string): string {
   const parts = hostname.split('.')
-
   if (parts.length === 2) {
-    // Root domain: ubq.fi
-    return ""
+    return '' // ubq.fi
   } else if (parts.length === 3) {
-    // Standard subdomain: pay.ubq.fi or plugin domain: os-*.ubq.fi
-    return parts[0]
-  } else if (parts.length === 4) {
-    // Branch subdomain: beta.pay.ubq.fi
-    return `${parts[0]}.${parts[1]}`
+    return parts[0] // pay.ubq.fi -> pay
   }
-
   throw new Error('Invalid domain format')
 }
 
 /**
- * Check if a hostname is a plugin domain (os-*.ubq.fi)
+ * Check if hostname is a plugin domain (os-*.ubq.fi)
  */
 export function isPluginDomain(hostname: string): boolean {
   const parts = hostname.split('.')
@@ -34,7 +24,7 @@ export function isPluginDomain(hostname: string): boolean {
 /**
  * Fetch known plugin names from GitHub API with KV caching
  */
-async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
+export async function getKnownPlugins(kvNamespace: any, githubToken?: string): Promise<string[]> {
   const CACHE_KEY = 'github:plugin-names'
   const CACHE_TTL = 24 * 60 * 60 // 24 hours
 
@@ -42,6 +32,7 @@ async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
     // Try to get from cache first
     const cached = await kvNamespace.get(CACHE_KEY, { type: 'json' })
     if (cached && Array.isArray(cached)) {
+      console.log(`📦 Using cached plugin names (${cached.length} plugins)`)
       return cached
     }
   } catch (error) {
@@ -49,26 +40,43 @@ async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
   }
 
   try {
-    // Fetch from GitHub API with optional token
+    console.log('🔍 Fetching plugin names from GitHub API...')
+    
+    // Fetch from GitHub API with optional token and timeout
     const headers: Record<string, string> = {}
-    const githubToken = process.env.GITHUB_TOKEN
     if (githubToken) {
       headers['Authorization'] = `token ${githubToken}`
+      console.log('🔑 Using GitHub token for API request')
+    } else {
+      console.warn('⚠️ No GitHub token provided - rate limits may apply')
     }
 
     const response = await fetch('https://api.github.com/orgs/ubiquity-os-marketplace/repos?per_page=100', {
-      headers
+      headers,
+      signal: AbortSignal.timeout(5000) // 5 second timeout
     })
+    
     if (!response.ok) {
-      throw new Error(`GitHub API error: ${response.status}`)
+      const remaining = response.headers.get('X-RateLimit-Remaining')
+      const resetTime = response.headers.get('X-RateLimit-Reset')
+      const errorMessage = `GitHub API error: ${response.status} ${response.statusText}`
+      
+      if (remaining && resetTime) {
+        throw new Error(`${errorMessage} - Rate limit: ${remaining} remaining, resets at ${new Date(parseInt(resetTime) * 1000)}`)
+      }
+      
+      throw new Error(errorMessage)
     }
 
     const repos = await response.json() as Array<{ name: string }>
     const pluginNames = repos.map((repo) => repo.name).filter((name: string) => name)
 
+    console.log(`✅ Fetched ${pluginNames.length} plugin names from GitHub`)
+
     // Cache the results
     try {
       await kvNamespace.put(CACHE_KEY, JSON.stringify(pluginNames), { expirationTtl: CACHE_TTL })
+      console.log('💾 Cached plugin names')
     } catch (error) {
       console.warn('Failed to cache plugin names:', error)
     }
@@ -76,7 +84,7 @@ async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
     return pluginNames
   } catch (error) {
     console.error('Failed to fetch plugin names from GitHub:', error)
-    throw new Error(`GitHub API failed: ${error}`)
+    throw error
   }
 }
 
@@ -84,7 +92,7 @@ async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
  * Fetch known service subdomains from GitHub API with KV caching
  * Looks for repos in ubiquity org that end with .ubq.fi
  */
-export async function getKnownServices(kvNamespace: any): Promise<string[]> {
+export async function getKnownServices(kvNamespace: any, githubToken?: string): Promise<string[]> {
   const CACHE_KEY = 'github:service-names'
   const CACHE_TTL = 24 * 60 * 60 // 24 hours
 
@@ -92,6 +100,7 @@ export async function getKnownServices(kvNamespace: any): Promise<string[]> {
     // Try to get from cache first
     const cached = await kvNamespace.get(CACHE_KEY, { type: 'json' })
     if (cached && Array.isArray(cached)) {
+      console.log(`📦 Using cached service names (${cached.length} services)`)
       return cached
     }
   } catch (error) {
@@ -99,18 +108,32 @@ export async function getKnownServices(kvNamespace: any): Promise<string[]> {
   }
 
   try {
-    // Fetch from GitHub API with optional token
+    console.log('🔍 Fetching service names from GitHub API...')
+    
+    // Fetch from GitHub API with optional token and timeout
     const headers: Record<string, string> = {}
-    const githubToken = process.env.GITHUB_TOKEN
     if (githubToken) {
       headers['Authorization'] = `token ${githubToken}`
+      console.log('🔑 Using GitHub token for services API request')
+    } else {
+      console.warn('⚠️ No GitHub token provided for services - rate limits may apply')
     }
 
     const response = await fetch('https://api.github.com/orgs/ubiquity/repos?per_page=100', {
-      headers
+      headers,
+      signal: AbortSignal.timeout(5000) // 5 second timeout
     })
+    
     if (!response.ok) {
-      throw new Error(`GitHub API error: ${response.status}`)
+      const remaining = response.headers.get('X-RateLimit-Remaining')
+      const resetTime = response.headers.get('X-RateLimit-Reset')
+      const errorMessage = `GitHub API error for services: ${response.status} ${response.statusText}`
+      
+      if (remaining && resetTime) {
+        throw new Error(`${errorMessage} - Rate limit: ${remaining} remaining, resets at ${new Date(parseInt(resetTime) * 1000)}`)
+      }
+      
+      throw new Error(errorMessage)
     }
 
     const repos = await response.json() as Array<{ name: string }>
@@ -127,9 +150,12 @@ export async function getKnownServices(kvNamespace: any): Promise<string[]> {
       return name.replace('.ubq.fi', '')
     })
 
+    console.log(`✅ Fetched ${serviceSubdomains.length} service names from GitHub`)
+
     // Cache the results
     try {
       await kvNamespace.put(CACHE_KEY, JSON.stringify(serviceSubdomains), { expirationTtl: CACHE_TTL })
+      console.log('💾 Cached service names')
     } catch (error) {
       console.warn('Failed to cache service names:', error)
     }
@@ -137,23 +163,21 @@ export async function getKnownServices(kvNamespace: any): Promise<string[]> {
     return serviceSubdomains
   } catch (error) {
     console.error('Failed to fetch service names from GitHub:', error)
-    throw new Error(`GitHub API failed: ${error}`)
+    throw error
   }
 }
 
 /**
- * Find the base plugin name from a potentially suffixed name
+ * Find base plugin name from plugin domain
  */
 function findBasePlugin(withoutPrefix: string, knownPlugins: string[]): string | null {
-  // First check if it's an exact match
+  // Check if it's an exact match first
   if (knownPlugins.includes(withoutPrefix)) {
     return withoutPrefix
   }
 
-  // Try to find base plugin by removing potential suffixes
+  // Try removing suffixes progressively
   const parts = withoutPrefix.split('-')
-
-  // Try removing one segment at a time from the end
   for (let i = parts.length - 1; i > 0; i--) {
     const candidate = parts.slice(0, i).join('-')
     if (knownPlugins.includes(candidate)) {
@@ -165,37 +189,29 @@ function findBasePlugin(withoutPrefix: string, knownPlugins: string[]): string |
 }
 
 /**
- * Extract plugin name from plugin domain with GitHub API validation
- * Examples:
- * - os-command-config-main.ubq.fi -> "command-config-main"
- * - os-command-config.ubq.fi -> "command-config-main" (production alias)
- * - os-command-config-dev.ubq.fi -> "command-config-dev"
- * - os-text-conversation-rewards.ubq.fi -> "text-conversation-rewards-main"
- * - os-text-conversation-rewards-pr-123.ubq.fi -> "text-conversation-rewards-pr-123"
+ * Get plugin name from hostname
  */
-export async function getPluginName(hostname: string, kvNamespace: any): Promise<string> {
+export async function getPluginName(hostname: string, kvNamespace: any, githubToken?: string): Promise<string> {
   if (!isPluginDomain(hostname)) {
     throw new Error('Not a plugin domain')
   }
 
-  const withoutPrefix = hostname.split('.')[0].substring(3)
+  const withoutPrefix = hostname.split('.')[0].substring(3) // Remove 'os-'
 
   try {
-    // Get known plugins from GitHub API (cached)
-    const knownPlugins = await getKnownPlugins(kvNamespace)
+    const knownPlugins = await getKnownPlugins(kvNamespace, githubToken)
 
-    // Check if exact match (base plugin name)
+    // Check if it's an exact match
     if (knownPlugins.includes(withoutPrefix)) {
       return `${withoutPrefix}-main`
     }
 
-    // Check if has valid plugin prefix
+    // Try to find base plugin
     const basePlugin = findBasePlugin(withoutPrefix, knownPlugins)
     if (basePlugin) {
-      return withoutPrefix // use as-is (has suffix)
+      return withoutPrefix // Use the full subdomain name
     }
 
-    // Unknown plugin - fail explicitly
     throw new Error(`Unknown plugin: ${withoutPrefix}`)
   } catch (error) {
     console.error('Error in getPluginName:', error)
@@ -204,48 +220,39 @@ export async function getPluginName(hostname: string, kvNamespace: any): Promise
 }
 
 /**
- * Build Deno Deploy URL from subdomain pattern
+ * Build Deno deployment URL
  */
 export function buildDenoUrl(subdomain: string, url: URL): string {
-  if (subdomain === "") {
-    // Root domain: ubq.fi -> ubq-fi.deno.dev
+  if (subdomain === '') {
     return `https://ubq-fi.deno.dev${url.pathname}${url.search}`
   } else {
-    // Subdomain: pay.ubq.fi -> pay-ubq-fi.deno.dev
-    // Branch: beta.pay.ubq.fi -> beta-pay-ubq-fi.deno.dev
-    const denoSubdomain = subdomain.replace(/\./g, '-')
-    return `https://${denoSubdomain}-ubq-fi.deno.dev${url.pathname}${url.search}`
+    return `https://${subdomain}-ubq-fi.deno.dev${url.pathname}${url.search}`
   }
 }
 
 /**
- * Build Cloudflare Pages URL from subdomain pattern
+ * Build Pages deployment URL
  */
 export function buildPagesUrl(subdomain: string, url: URL): string {
-  if (subdomain === "") {
-    // Root domain: ubq.fi -> ubq-fi.pages.dev
+  if (subdomain === '') {
     return `https://ubq-fi.pages.dev${url.pathname}${url.search}`
   } else {
-    // Subdomain: pay.ubq.fi -> pay-ubq-fi.pages.dev
-    // Branch: beta.pay.ubq.fi -> beta.pay-ubq-fi.pages.dev
     return `https://${subdomain}-ubq-fi.pages.dev${url.pathname}${url.search}`
   }
 }
 
 /**
- * Build plugin URL from plugin domain (Deno Deploy)
- * Example: os-command-config-main.ubq.fi -> https://command-config-main.deno.dev
+ * Build plugin Deno URL
  */
-export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: any): Promise<string> {
-  const pluginName = await getPluginName(hostname, kvNamespace)
+export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: any, githubToken?: string): Promise<string> {
+  const pluginName = await getPluginName(hostname, kvNamespace, githubToken)
   return `https://${pluginName}.deno.dev${url.pathname}${url.search}`
 }
 
 /**
- * Build plugin URL from plugin domain (Cloudflare Pages)
- * Example: os-command-config-main.ubq.fi -> https://command-config-main.pages.dev
+ * Build plugin Pages URL
  */
-export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespace: any): Promise<string> {
-  const pluginName = await getPluginName(hostname, kvNamespace)
+export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespace: any, githubToken?: string): Promise<string> {
+  const pluginName = await getPluginName(hostname, kvNamespace, githubToken)
   return `https://${pluginName}.pages.dev${url.pathname}${url.search}`
 }

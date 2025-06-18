@@ -12,16 +12,10 @@ async function handleRequest(request) {
   } else {
     // Route subdomains
     const subdomains = url.hostname.split('.')
-    let subdomain, branch = ''
 
-    if (subdomains.length === 4) {
-      // Handle branch subdomain (e.g., beta.pay.ubq.fi)
-      branch = subdomains[0]
-      subdomain = subdomains.slice(1, subdomains.length - 1).join('.')
-      address = `https://${branch}.${subdomain}-ubq-fi.pages.dev` + url.pathname + url.search
-    } else if (subdomains.length === 3) {
+    if (subdomains.length === 3) {
       // Handle standard subdomain (e.g., pay.ubq.fi)
-      subdomain = subdomains[0]
+      const subdomain = subdomains[0]
       address = `https://${subdomain}-ubq-fi.pages.dev` + url.pathname + url.search
     } else {
       return new Response('Invalid subdomain format', { status: 400 })

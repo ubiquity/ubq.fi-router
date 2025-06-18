@@ -107,11 +107,6 @@ The router internally performs HEAD requests to determine service availability.
 - **Deno URL**: `https://pay-ubq-fi.deno.dev`
 - **Pages URL**: `https://pay-ubq-fi.pages.dev`
 
-#### Branch Subdomain
-- **Input**: `beta.pay.ubq.fi`
-- **Subdomain Key**: `"beta.pay"`
-- **Deno URL**: `https://beta-pay-ubq-fi.deno.dev`
-- **Pages URL**: `https://beta.pay-ubq-fi.pages.dev`
 
 #### Plugin Domains
 - **Input**: `os-command-config.ubq.fi`
@@ -137,7 +132,6 @@ The router internally performs HEAD requests to determine service availability.
 |--------|-----------|
 | `ubq.fi` | `route:` |
 | `pay.ubq.fi` | `route:pay` |
-| `beta.pay.ubq.fi` | `route:beta.pay` |
 | `demo.ubq.fi` | `route:demo` |
 
 ### Cache Value Types

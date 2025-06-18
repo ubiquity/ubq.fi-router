@@ -194,10 +194,10 @@ describe("Real Service Type Discovery", () => {
 
     test("should handle invalid domain formats", async () => {
       try {
-        // This should work fine - our router handles various subdomain formats
+        // Test with a simple invalid subdomain that should fail
         const result = await coalesceDiscovery(
-          "beta.pay",
-          new URL("https://beta.pay.ubq.fi"),
+          "invalid-test",
+          new URL("https://invalid-test.ubq.fi"),
           realKV
         )
         expect(result).toMatch(/^(service|plugin)-(deno|pages|both|none)$/)

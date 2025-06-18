@@ -285,7 +285,6 @@ curl http://localhost:8787 -H "Host: pay.ubq.fi"
    # Test with different domain patterns:
    # ubq.fi → ""
    # pay.ubq.fi → "pay"
-   # beta.pay.ubq.fi → "beta.pay"
    ```
 
 2. **Verify URL building:**

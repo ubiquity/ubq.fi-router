@@ -7,9 +7,12 @@ import type { ServiceType, CacheControlValue } from './types'
 import { getSubdomainKey } from './utils'
 import { coalesceDiscovery } from './service-discovery'
 import { routeRequest } from './routing'
+import { getCachedSitemapEntries } from './sitemap-discovery'
+import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
 
 interface Env {
   ROUTER_CACHE: KVNamespace
+  GITHUB_TOKEN?: string
 }
 
 export default {
@@ -21,6 +24,15 @@ export default {
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
   const cacheControl = request.headers.get('X-Cache-Control') as CacheControlValue
+
+  // Handle sitemap endpoints
+  if (url.pathname === '/sitemap.xml') {
+    return await handleSitemapXml(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
+  }
+
+  if (url.pathname === '/sitemap.json') {
+    return await handleSitemapJson(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
+  }
 
   // Generate cache key from hostname
   const subdomain = getSubdomainKey(url.hostname)
@@ -62,4 +74,53 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   // Route based on discovered/cached service availability
   return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE)
+}
+
+/**
+ * Safe sitemap generation with timeout
+ */
+async function safeSitemapGeneration(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken?: string): Promise<any[]> {
+  const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
+
+  console.log('🚀 Starting sitemap generation with timeout protection')
+
+  // Race between sitemap generation and timeout
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Sitemap generation timeout')), TIMEOUT_MS)
+  })
+
+  const sitemapPromise = getCachedSitemapEntries(kvNamespace, forceRefresh, githubToken)
+
+  const entries = await Promise.race([sitemapPromise, timeoutPromise]) as any[]
+
+  console.log(`✅ Sitemap generation completed with ${entries.length} entries`)
+  return entries
+}
+
+/**
+ * Handle XML sitemap requests
+ */
+async function handleSitemapXml(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken?: string): Promise<Response> {
+  try {
+    const entries = await safeSitemapGeneration(kvNamespace, forceRefresh, githubToken)
+    const xmlContent = generateXmlSitemap(entries)
+    return createXmlResponse(xmlContent)
+  } catch (error) {
+    console.error('Critical error in XML sitemap handler:', error)
+    throw error
+  }
+}
+
+/**
+ * Handle JSON sitemap requests
+ */
+async function handleSitemapJson(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken?: string): Promise<Response> {
+  try {
+    const entries = await safeSitemapGeneration(kvNamespace, forceRefresh, githubToken)
+    const jsonContent = generateJsonSitemap(entries)
+    return createJsonResponse(jsonContent)
+  } catch (error) {
+    console.error('Critical error in JSON sitemap handler:', error)
+    throw error
+  }
 }
