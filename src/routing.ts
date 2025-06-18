@@ -1,5 +1,5 @@
 import type { ServiceType } from './types'
-import { buildDenoUrl, buildPagesUrl } from './utils'
+import { buildDenoUrl, buildPagesUrl, buildPluginUrl } from './utils'
 
 /**
  * Route the request based on service availability
@@ -12,6 +12,9 @@ export async function routeRequest(request: Request, url: URL, subdomain: string
 
     case "pages":
       return await proxyRequest(request, buildPagesUrl(subdomain, url))
+
+    case "plugin":
+      return await proxyRequest(request, buildPluginUrl(url.hostname, url))
 
     case "both":
       // Try Deno first, fallback to Pages on 404

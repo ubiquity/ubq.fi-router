@@ -1,11 +1,13 @@
 # UBQ.FI Router - TypeScript Cloudflare Worker
 
-A high-performance Cloudflare Worker that intelligently routes requests from ubq.fi domains to either Deno Deploy or Cloudflare Pages with advanced caching, service discovery, and request coalescing.
+A high-performance Cloudflare Worker that intelligently routes requests from ubq.fi domains to either Deno Deploy or Cloudflare Pages, with dedicated plugin routing support for microservices.
 
 ## 🎯 Overview
 
 This TypeScript-based Cloudflare Worker provides:
 - **Intelligent Routing**: Automatically routes requests to available services
+- **Plugin System**: Dedicated `os-*.ubq.fi` routing for plugin microservices with production aliases
+- **Service Discovery**: Automatic detection with manifest validation for plugins
 - **Performance Optimization**: Request coalescing, parallel discovery, and streaming responses
 - **Advanced Caching**: KV-based service discovery caching with intelligent TTL
 - **Professional Development**: Full TypeScript setup with modular architecture
@@ -16,13 +18,32 @@ This TypeScript-based Cloudflare Worker provides:
 ### Service Priority
 1. **Deno Deploy** (Primary) - `*.deno.dev`
 2. **Cloudflare Pages** (Fallback) - `*.pages.dev`
+3. **Plugins** (Direct) - `os-*.ubq.fi` → `*.deno.dev`
 
 ### URL Mapping Examples
-| Domain | Deno Deploy | Cloudflare Pages |
-|--------|-------------|------------------|
-| `ubq.fi` | `ubq-fi.deno.dev` | `ubq-fi.pages.dev` |
-| `pay.ubq.fi` | `pay-ubq-fi.deno.dev` | `pay-ubq-fi.pages.dev` |
-| `beta.pay.ubq.fi` | `beta-pay-ubq-fi.deno.dev` | `beta.pay-ubq-fi.pages.dev` |
+
+#### Standard Services (with fallback)
+| Domain | Target Service |
+|--------|----------------|
+| `ubq.fi` | `ubq-fi.deno.dev` (fallback: `ubq-fi.pages.dev`) |
+| `pay.ubq.fi` | `pay-ubq-fi.deno.dev` (fallback: `pay-ubq-fi.pages.dev`) |
+| `beta.pay.ubq.fi` | `beta-pay-ubq-fi.deno.dev` (fallback: `beta.pay-ubq-fi.pages.dev`) |
+
+#### Plugin Services (direct routing)
+| Domain | Target Service | Notes |
+|--------|----------------|-------|
+| `os-command-config.ubq.fi` | `command-config-main.deno.dev` | Production alias |
+| `os-command-config-main.ubq.fi` | `command-config-main.deno.dev` | Explicit main |
+| `os-command-config-dev.ubq.fi` | `command-config-dev.deno.dev` | Development |
+| `os-pricing-calculator-feature-ui.ubq.fi` | `pricing-calculator-feature-ui.deno.dev` | Feature branch |
+
+### Plugin Routing System
+- **Pattern**: `os-{plugin-name}-{deployment}.ubq.fi` → `{plugin-name}-{deployment}.deno.dev`
+- **Production Alias**: `os-{plugin-name}.ubq.fi` automatically routes to `{plugin-name}-main.deno.dev`
+- **Discovery**: Validates plugin existence via `/manifest.json` endpoint
+- **Direct Routing**: No fallback - plugins must exist on Deno Deploy
+- **Validation**: Checks for valid JSON manifest with required `name` and `description` fields
+- **SSL Support**: Uses existing `*.ubq.fi` SSL certificate (zero-cost solution)
 
 ### Caching Strategy
 - **Cache Keys**: Based on subdomain patterns (`"pay"`, `"beta.pay"`, `""`)
@@ -121,6 +142,9 @@ curl -H "X-Cache-Control: refresh" https://pay.ubq.fi
 # Clear specific cache entry
 curl -H "X-Cache-Control: clear" https://blog.ubq.fi
 
+# Test plugin routing
+curl -H "X-Cache-Control: refresh" https://os-command-config-main.ubq.fi
+
 # Clear entire cache
 curl -H "X-Cache-Control: clear-all" https://ubq.fi
 ```
@@ -158,7 +182,7 @@ bun run deploy
 ### KV Cache Inspection
 Check your Cloudflare KV namespace for cache entries:
 - Keys follow pattern: `route:{subdomain}`
-- Values: `"deno"`, `"pages"`, `"both"`, or `"none"`
+- Values: `"deno"`, `"pages"`, `"both"`, `"plugin"`, or `"none"`
 
 ### Performance Metrics
 - **Bundle Size**: ~4.6kb (optimized)

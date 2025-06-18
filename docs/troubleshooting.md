@@ -300,6 +300,115 @@ curl http://localhost:8787 -H "Host: pay.ubq.fi"
    curl -H "X-Cache-Control: refresh" https://domain.ubq.fi -v
    ```
 
+### Plugin Routing Issues
+
+**Symptoms:**
+- Plugin domain returns 404
+- Production alias not working
+- Manifest validation failing
+- Wrong deployment being accessed
+
+**Common Plugin Issues:**
+
+#### Plugin Not Found (404)
+```bash
+# Test: curl https://os-my-plugin.ubq.fi/manifest.json
+# Returns: 404 Service not found
+```
+
+**Causes:**
+1. Plugin not deployed to Deno Deploy with correct name
+2. Production alias resolving to wrong deployment name
+3. Manifest endpoint missing or invalid
+
+**Solutions:**
+1. **Verify deployment name:**
+   ```bash
+   # For os-my-plugin.ubq.fi, check if my-plugin-main.deno.dev exists
+   curl -I https://my-plugin-main.deno.dev/manifest.json
+   ```
+
+2. **Test plugin name resolution:**
+   ```bash
+   # Debug plugin name parsing
+   # os-command-config.ubq.fi should resolve to command-config-main
+   # os-command-config-dev.ubq.fi should resolve to command-config-dev
+   ```
+
+3. **Check manifest endpoint:**
+   ```bash
+   # Test direct Deno Deploy access
+   curl https://my-plugin-main.deno.dev/manifest.json
+
+   # Verify JSON format
+   curl -s https://my-plugin-main.deno.dev/manifest.json | jq '.'
+   ```
+
+#### Production Alias Not Working
+```bash
+# Expected: os-plugin.ubq.fi → plugin-main.deno.dev
+# Actual: 404 or wrong target
+```
+
+**Solutions:**
+1. **Check deployment suffix logic:**
+   ```typescript
+   // Verify getPluginName function handles production alias
+   // Plugin without suffix should append -main
+   ```
+
+2. **Test both alias and explicit main:**
+   ```bash
+   curl https://os-my-plugin.ubq.fi/manifest.json
+   curl https://os-my-plugin-main.ubq.fi/manifest.json
+   # Both should return same result
+   ```
+
+#### Manifest Validation Failing
+```bash
+# Plugin exists but router returns 404
+# Deno Deploy responds but manifest invalid
+```
+
+**Debugging Steps:**
+1. **Check manifest structure:**
+   ```bash
+   # Must include name and description fields
+   curl -s https://plugin-main.deno.dev/manifest.json | jq '.name, .description'
+   ```
+
+2. **Verify JSON validity:**
+   ```bash
+   # Test if response is valid JSON
+   curl -s https://plugin-main.deno.dev/manifest.json | python -m json.tool
+   ```
+
+3. **Check content-type:**
+   ```bash
+   # Ensure application/json content-type
+   curl -I https://plugin-main.deno.dev/manifest.json | grep content-type
+   ```
+
+#### Wrong Plugin Deployment
+```bash
+# Accessing dev instead of main, or vice versa
+```
+
+**Solutions:**
+1. **Verify URL mapping:**
+   ```bash
+   # Check deployment suffix resolution
+   # os-plugin.ubq.fi → plugin-main.deno.dev (production)
+   # os-plugin-dev.ubq.fi → plugin-dev.deno.dev (development)
+   ```
+
+2. **Clear plugin cache:**
+   ```bash
+   # Clear specific plugin cache
+   curl -H "X-Cache-Control: clear" https://os-plugin.ubq.fi
+   curl -H "X-Cache-Control: refresh" https://os-plugin.ubq.fi
+   ```
+
 ## Error Codes Reference
 
 ### HTTP Status Codes

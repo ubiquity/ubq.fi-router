@@ -1,4 +1,4 @@
-export type ServiceType = "deno" | "pages" | "both" | "none"
+export type ServiceType = "deno" | "pages" | "both" | "plugin" | "none"
 
 export type CacheControlValue = "refresh" | "clear" | "clear-all" | null
 
@@ -10,4 +10,13 @@ export interface RouteConfig {
 export interface ServiceDiscoveryResult {
   denoExists: boolean
   pagesExists: boolean
+}
+
+export interface PluginManifest {
+  name: string
+  description: string
+  "ubiquity:listeners"?: string[]
+  commands?: Record<string, any>
+  configuration?: Record<string, any>
+  homepage_url?: string
 }

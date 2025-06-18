@@ -113,6 +113,19 @@ The router internally performs HEAD requests to determine service availability.
 - **Deno URL**: `https://beta-pay-ubq-fi.deno.dev`
 - **Pages URL**: `https://beta.pay-ubq-fi.pages.dev`
 
+#### Plugin Domains
+- **Input**: `os-command-config.ubq.fi`
+- **Plugin Name**: `"command-config-main"` (production alias)
+- **Target URL**: `https://command-config-main.deno.dev`
+
+- **Input**: `os-command-config-main.ubq.fi`
+- **Plugin Name**: `"command-config-main"`
+- **Target URL**: `https://command-config-main.deno.dev`
+
+- **Input**: `os-command-config-dev.ubq.fi`
+- **Plugin Name**: `"command-config-dev"`
+- **Target URL**: `https://command-config-dev.deno.dev`
+
 ## Cache API
 
 ### Cache Key Structure

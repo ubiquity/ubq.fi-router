@@ -169,6 +169,10 @@ curl -H "X-Cache-Control: refresh" https://pay.ubq.fi
 
 # Test normal routing
 curl https://pay.ubq.fi
+
+# Test plugin routing
+curl -H "X-Cache-Control: refresh" https://os-command-config.ubq.fi
+curl https://os-command-config.ubq.fi/manifest.json
 ```
 
 ### 2. Service Discovery Verification

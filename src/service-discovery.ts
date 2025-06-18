@@ -1,5 +1,5 @@
-import type { ServiceType, ServiceDiscoveryResult } from './types'
-import { buildDenoUrl, buildPagesUrl } from './utils'
+import type { ServiceType, ServiceDiscoveryResult, PluginManifest } from './types'
+import { buildDenoUrl, buildPagesUrl, buildPluginUrl, isPluginDomain } from './utils'
 
 // Request coalescing map to prevent duplicate service discoveries
 const inFlightDiscoveries = new Map<string, Promise<ServiceType>>()
@@ -19,7 +19,9 @@ export async function coalesceDiscovery(subdomain: string, url: URL): Promise<Se
   }
 
   // Start new discovery and store the promise
-  const discoveryPromise = discoverServices(subdomain, url)
+  const discoveryPromise = isPluginDomain(url.hostname)
+    ? discoverPlugin(url.hostname, url)
+    : discoverServices(subdomain, url)
   inFlightDiscoveries.set(discoveryKey, discoveryPromise)
 
   try {
@@ -53,6 +55,37 @@ async function discoverServices(subdomain: string, url: URL): Promise<ServiceTyp
   } else if (pagesExists) {
     return "pages"
   } else {
+    return "none"
+  }
+}
+
+/**
+ * Discover plugin by checking manifest.json endpoint
+ * Returns: "plugin" if valid manifest exists, "none" if not
+ */
+async function discoverPlugin(hostname: string, url: URL): Promise<ServiceType> {
+  const pluginUrl = buildPluginUrl(hostname, url)
+  const manifestUrl = `${pluginUrl.replace(url.pathname + url.search, '')}/manifest.json`
+
+  try {
+    const response = await fetch(manifestUrl, {
+      method: 'GET',
+      signal: AbortSignal.timeout(3000)
+    })
+
+    if (response.status >= 200 && response.status < 300) {
+      // Validate that response contains valid JSON manifest
+      const manifest = await response.json() as PluginManifest
+
+      // Basic validation - manifest should have name and description
+      if (manifest.name && manifest.description) {
+        return "plugin"
+      }
+    }
+
+    return "none"
+  } catch (error) {
+    // Network errors, timeouts, invalid JSON, etc. - plugin doesn't exist
     return "none"
   }
 }

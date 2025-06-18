@@ -9,37 +9,50 @@ The UBQ.FI Router is a sophisticated Cloudflare Worker that provides intelligent
 ```mermaid
 graph TD
     A[Client Request] --> B[Cloudflare Worker]
-    B --> C{Cache Control Header?}
-    C -->|clear-all| D[Clear All Cache]
-    C -->|clear| E[Clear Single Entry]
-    C -->|refresh| F[Force Discovery]
-    C -->|none| G[Check KV Cache]
+    B --> C{Plugin Domain?}
+    C -->|Yes| D[Plugin Routing]
+    C -->|No| E{Cache Control Header?}
 
-    G --> H{Cache Hit?}
-    H -->|Yes| I[Use Cached Result]
-    H -->|No| F
+    D --> F[Parse Plugin Name]
+    F --> G[Check Plugin Manifest]
+    G --> H{Valid Plugin?}
+    H -->|Yes| I[Route to Plugin]
+    H -->|No| J[Return 404]
 
-    F --> J[Service Discovery]
-    J --> K[Deno Deploy Check]
-    J --> L[Cloudflare Pages Check]
+    E -->|clear-all| K[Clear All Cache]
+    E -->|clear| L[Clear Single Entry]
+    E -->|refresh| M[Force Discovery]
+    E -->|none| N[Check KV Cache]
 
-    K --> M[Parallel Execution]
-    L --> M
-    M --> N[Determine Service Type]
-    N --> O[Cache Result]
-    O --> P[Route Request]
+    N --> O{Cache Hit?}
+    O -->|Yes| P[Use Cached Result]
+    O -->|No| M
 
-    P --> Q{Service Type?}
-    Q -->|deno| R[Route to Deno Deploy]
-    Q -->|pages| S[Route to Cloudflare Pages]
-    Q -->|both| T[Try Deno, Fallback Pages]
-    Q -->|none| U[Return 404]
+    M --> Q[Service Discovery]
+    Q --> R[Deno Deploy Check]
+    Q --> S[Cloudflare Pages Check]
 
-    R --> V[Proxy Response]
-    S --> V
-    T --> V
-    U --> V
-    V --> W[Client Response]
+    R --> T[Parallel Execution]
+    S --> T
+    T --> U[Determine Service Type]
+    U --> V[Cache Result]
+    V --> W[Route Request]
+
+    W --> X{Service Type?}
+    X -->|deno| Y[Route to Deno Deploy]
+    X -->|pages| Z[Route to Cloudflare Pages]
+    X -->|both| AA[Try Deno, Fallback Pages]
+    X -->|none| BB[Return 404]
+
+    I --> CC[Proxy Response]
+    Y --> CC
+    Z --> CC
+    AA --> CC
+    J --> CC
+    K --> CC
+    L --> CC
+    BB --> CC
+    CC --> DD[Client Response]
 ```
 
 ## Component Architecture
@@ -62,7 +75,7 @@ graph TD
 
 ### 3. URL Utilities (`utils.ts`)
 - **Purpose**: Transform domains to service URLs
-- **Mapping Logic**:
+- **Standard Mapping Logic**:
   ```typescript
   // Deno Deploy
   ubq.fi → ubq-fi.deno.dev
@@ -73,6 +86,14 @@ graph TD
   ubq.fi → ubq-fi.pages.dev
   pay.ubq.fi → pay-ubq-fi.pages.dev
   beta.pay.ubq.fi → beta.pay-ubq-fi.pages.dev
+  ```
+- **Plugin Mapping Logic**:
+  ```typescript
+  // Plugin Routing (os-*.ubq.fi)
+  os-command-config.ubq.fi → command-config-main.deno.dev (production alias)
+  os-command-config-main.ubq.fi → command-config-main.deno.dev
+  os-command-config-dev.ubq.fi → command-config-dev.deno.dev
+  os-pricing-calculator-feature-ui.ubq.fi → pricing-calculator-feature-ui.deno.dev
   ```
 
 ### 4. Request Routing (`routing.ts`)
@@ -169,14 +190,77 @@ graph TD
     T -->|No| V[Return "none"]
 ```
 
+## Plugin Routing Architecture
+
+### Plugin Domain Detection
+```typescript
+// Pattern matching for plugin domains
+export function isPluginDomain(hostname: string): boolean {
+  return hostname.startsWith('os-') && hostname.endsWith('.ubq.fi')
+}
+```
+
+### Plugin Name Resolution
+The router implements intelligent deployment suffix handling:
+
+```typescript
+// Production alias system
+os-command-config.ubq.fi → command-config-main.deno.dev
+os-command-config-main.ubq.fi → command-config-main.deno.dev
+
+// Development deployments
+os-command-config-dev.ubq.fi → command-config-dev.deno.dev
+
+// Feature branches
+os-command-config-feature-auth.ubq.fi → command-config-feature-auth.deno.dev
+```
+
+### Plugin Discovery Flow
+```mermaid
+graph TD
+    A[Plugin Request] --> B[Extract Plugin Name]
+    B --> C[Apply Production Alias]
+    C --> D[Build Target URL]
+    D --> E[Check Cache]
+    E --> F{Cache Hit?}
+    F -->|Yes| G[Use Cached Result]
+    F -->|No| H[Validate Manifest]
+    H --> I[GET /manifest.json]
+    I --> J{Valid JSON?}
+    J -->|Yes| K[Cache as "plugin"]
+    J -->|No| L[Cache as "none"]
+    K --> M[Route to Plugin]
+    L --> N[Return 404]
+    G --> O{Cached Type?}
+    O -->|"plugin"| M
+    O -->|"none"| N
+```
+
+### Manifest Validation
+```typescript
+interface PluginManifest {
+  name: string
+  description: string
+  [key: string]: any  // Additional plugin-specific fields
+}
+```
+
+Plugin discovery validates:
+1. HTTP 200 response from `/manifest.json`
+2. Valid JSON parsing
+3. Required `name` and `description` fields
+4. Response within 3-second timeout
+
 ## Caching Strategy
 
 ### Cache Key Structure
-- **Pattern**: `route:{subdomain}`
+- **Standard Pattern**: `route:{subdomain}`
+- **Plugin Pattern**: `plugin:{plugin-name}`
 - **Examples**:
   - `route:` (for ubq.fi)
   - `route:pay` (for pay.ubq.fi)
   - `route:beta.pay` (for beta.pay.ubq.fi)
+  - `plugin:command-config-main` (for plugin cache)
 
 ### Cache Value Types
 | Value | Meaning | Routing Behavior |
@@ -184,6 +268,7 @@ graph TD
 | `"deno"` | Only Deno Deploy exists | Route to Deno Deploy |
 | `"pages"` | Only Cloudflare Pages exists | Route to Cloudflare Pages |
 | `"both"` | Both services exist | Try Deno, fallback to Pages |
+| `"plugin"` | Plugin exists with valid manifest | Route directly to plugin |
 | `"none"` | No services exist | Return 404 |
 
 ### TTL Strategy
