@@ -3,6 +3,7 @@ import { coalesceDiscovery } from "../src/service-discovery"
 import { getKnownServices, getKnownPlugins, buildPluginUrl } from "../src/utils"
 import { buildDenoUrl, buildPagesUrl } from "../src/utils"
 import type { ServiceType } from "../src/types"
+import { GITHUB_TOKEN } from "../src/env"
 
 // Real KV namespace mock
 const realKV = {
@@ -111,6 +112,10 @@ describe("Comprehensive Service Validation", () => {
   test("should validate all GitHub repos against actual deployments and ubq.fi routing", async () => {
     console.log("🔍 Starting comprehensive validation...\n")
 
+    // Use GitHub token from environment loader
+    const githubToken = GITHUB_TOKEN
+    console.log("🔑 Using GitHub token for API requests")
+
     // Get all known services from GitHub
     const knownServices = await getKnownServices(realKV)
     console.log(`📋 Found ${knownServices.length} GitHub service repos:`)
@@ -157,7 +162,7 @@ describe("Comprehensive Service Validation", () => {
       }
 
       // Run service discovery
-      const actualServiceType = await coalesceDiscovery(subdomain, url, realKV)
+      const actualServiceType = await coalesceDiscovery(subdomain, url, realKV, githubToken)
 
       // Check if ubq.fi domain works
       const ubqResult = await checkUbqDomain(subdomain)

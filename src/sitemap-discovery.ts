@@ -55,14 +55,14 @@ async function discoverStandardServices(kvNamespace: any, githubToken?: string):
   const batchSize = 5
   for (let i = 0; i < servicesToDiscover.length; i += batchSize) {
     const batch = servicesToDiscover.slice(i, i + batchSize)
-    
+
     const batchPromises = batch.map(async (subdomain) => {
       try {
         const url = new URL(subdomain ? `https://${subdomain}.ubq.fi` : 'https://ubq.fi')
-        const serviceType = await coalesceDiscovery(subdomain, url, kvNamespace)
-        
+        const serviceType = await coalesceDiscovery(subdomain, url, kvNamespace, githubToken)
+
         const githubRepo = subdomain ? `${subdomain}.ubq.fi` : 'ubq.fi'
-        
+
         return {
           subdomain,
           serviceType,
@@ -97,18 +97,18 @@ async function discoverPluginServices(kvNamespace: any, githubToken?: string): P
     const batchSize = 3
     for (let i = 0; i < knownPlugins.length; i += batchSize) {
       const batch = knownPlugins.slice(i, i + batchSize)
-      
+
       const batchPromises = batch.map(async (pluginName: string) => {
         try {
           // Create plugin domain for discovery
           const pluginDomain = `os-${pluginName}.ubq.fi`
           const url = new URL(`https://${pluginDomain}`)
-          
+
           // Discover service type
-          const serviceType = await coalesceDiscovery(`os-${pluginName}`, url, kvNamespace)
-          
+          const serviceType = await coalesceDiscovery(`os-${pluginName}`, url, kvNamespace, githubToken)
+
           let pluginManifest: PluginManifest | undefined
-          
+
           // If plugin exists, try to fetch manifest
           if (!serviceType.endsWith('-none')) {
             // Try to get manifest from main deployment
@@ -164,7 +164,7 @@ export async function discoverAllServices(kvNamespace: any, githubToken?: string
 
     // Convert all results to sitemap entries
     const allServices = [...standardServices, ...pluginServices]
-    const sitemapEntries = allServices.map(service => 
+    const sitemapEntries = allServices.map(service =>
       createSitemapEntry(
         service.subdomain,
         service.serviceType,
@@ -179,7 +179,7 @@ export async function discoverAllServices(kvNamespace: any, githubToken?: string
       .sort((a, b) => b.priority - a.priority) // Sort by priority (highest first)
 
     console.log(`✅ Generated ${validEntries.length} valid sitemap entries`)
-    
+
     return sitemapEntries // Return all entries, filtering happens in generator
   } catch (error) {
     console.error('Failed to discover services for sitemap:', error)

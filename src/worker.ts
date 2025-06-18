@@ -56,7 +56,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   if (cacheControl === 'refresh') {
     // Force refresh: skip cache and discover services
-    serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE)
+    serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
     const ttl = (serviceType === 'service-none' || serviceType === 'plugin-none') ? 300 : 3600 // 5 min for 404s, 1 hour for existing
     await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl: ttl })
   } else {
@@ -66,7 +66,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
     if (!serviceType) {
       // Cache miss: discover and cache services with coalescing
-      serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE)
+      serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
       const ttl = (serviceType === 'service-none' || serviceType === 'plugin-none') ? 300 : 3600 // 5 min for 404s, 1 hour for existing
       await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl: ttl })
     }

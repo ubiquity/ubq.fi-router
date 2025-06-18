@@ -3,6 +3,7 @@ import { coalesceDiscovery } from "../src/service-discovery"
 import { routeRequest } from "../src/routing"
 import { getKnownServices } from "../src/utils"
 import type { ServiceType } from "../src/types"
+import { GITHUB_TOKEN } from "../src/env"
 
 // Real KV namespace mock that stores data in memory
 const realKV = {
@@ -38,7 +39,8 @@ describe("Real Service Type Discovery", () => {
         const result = await coalesceDiscovery(
           testCase.subdomain,
           new URL(`https://${testCase.subdomain}.ubq.fi`),
-          realKV
+          realKV,
+          GITHUB_TOKEN
         )
         expect(result).toMatch(testCase.expectType)
         console.log(`✅ ${testCase.subdomain}.ubq.fi → ${result}`)
@@ -101,7 +103,8 @@ describe("Real Service Type Discovery", () => {
             const result = await coalesceDiscovery(
               subdomain,
               new URL(`https://${subdomain ? subdomain + "." : ""}ubq.fi`),
-              realKV
+              realKV,
+              GITHUB_TOKEN
             )
             discoveredTypes.add(result)
             console.log(`    ✅ ${subdomain}.ubq.fi → ${result}`)
@@ -123,7 +126,8 @@ describe("Real Service Type Discovery", () => {
           const result = await coalesceDiscovery(
             `os-${plugin}`,
             new URL(`https://os-${plugin}.ubq.fi`),
-            realKV
+            realKV,
+            GITHUB_TOKEN
           )
           discoveredTypes.add(result)
           console.log(`    ✅ os-${plugin}.ubq.fi → ${result}`)
@@ -161,12 +165,12 @@ describe("Real Service Type Discovery", () => {
 
       // First discovery should hit the network
       const start1 = Date.now()
-      const result1 = await coalesceDiscovery(subdomain, url, realKV)
+      const result1 = await coalesceDiscovery(subdomain, url, realKV, GITHUB_TOKEN)
       const time1 = Date.now() - start1
 
       // Second discovery should be faster (cached)
       const start2 = Date.now()
-      const result2 = await coalesceDiscovery(subdomain, url, realKV)
+      const result2 = await coalesceDiscovery(subdomain, url, realKV, GITHUB_TOKEN)
       const time2 = Date.now() - start2
 
       // Results should be the same
@@ -185,7 +189,8 @@ describe("Real Service Type Discovery", () => {
       const result = await coalesceDiscovery(
         "timeout-test",
         new URL("https://timeout-test.ubq.fi"),
-        realKV
+        realKV,
+        GITHUB_TOKEN
       )
 
       // Should gracefully return service-none instead of throwing
@@ -198,7 +203,8 @@ describe("Real Service Type Discovery", () => {
         const result = await coalesceDiscovery(
           "invalid-test",
           new URL("https://invalid-test.ubq.fi"),
-          realKV
+          realKV,
+          GITHUB_TOKEN
         )
         expect(result).toMatch(/^(service|plugin)-(deno|pages|both|none)$/)
       } catch (error) {

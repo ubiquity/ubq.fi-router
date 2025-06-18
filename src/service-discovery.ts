@@ -8,7 +8,7 @@ const inFlightDiscoveries = new Map<string, Promise<ServiceType>>()
  * Coalesce multiple discovery requests for the same subdomain
  * Prevents redundant parallel discoveries
  */
-export async function coalesceDiscovery(subdomain: string, url: URL, kvNamespace: any): Promise<ServiceType> {
+export async function coalesceDiscovery(subdomain: string, url: URL, kvNamespace: any, githubToken?: string): Promise<ServiceType> {
   const discoveryKey = subdomain
 
   // Check if discovery is already in progress
@@ -20,7 +20,7 @@ export async function coalesceDiscovery(subdomain: string, url: URL, kvNamespace
 
   // Start new discovery and store the promise
   const discoveryPromise = isPluginDomain(url.hostname)
-    ? discoverPlugin(url.hostname, url, kvNamespace)
+    ? discoverPlugin(url.hostname, url, kvNamespace, githubToken)
     : discoverServices(subdomain, url)
   inFlightDiscoveries.set(discoveryKey, discoveryPromise)
 
@@ -64,11 +64,11 @@ async function discoverServices(subdomain: string, url: URL): Promise<ServiceTyp
  * OPTIMIZED: Checks both Deno Deploy and Cloudflare Pages in parallel
  * Returns: "plugin-deno", "plugin-pages", "plugin-both", or "plugin-none"
  */
-async function discoverPlugin(hostname: string, url: URL, kvNamespace: any): Promise<ServiceType> {
+async function discoverPlugin(hostname: string, url: URL, kvNamespace: any, githubToken?: string): Promise<ServiceType> {
   try {
     const [pluginDenoUrl, pluginPagesUrl] = await Promise.all([
-      buildPluginUrl(hostname, url, kvNamespace),
-      buildPluginPagesUrl(hostname, url, kvNamespace)
+      buildPluginUrl(hostname, url, kvNamespace, githubToken),
+      buildPluginPagesUrl(hostname, url, kvNamespace, githubToken)
     ])
 
     const denoManifestUrl = `${pluginDenoUrl.replace(url.pathname + url.search, '')}/manifest.json`

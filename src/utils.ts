@@ -1,3 +1,5 @@
+import { GITHUB_TOKEN } from "./env"
+
 /**
  * Extract subdomain key from hostname
  * ubq.fi -> ""
@@ -24,7 +26,7 @@ export function isPluginDomain(hostname: string): boolean {
 /**
  * Fetch known plugin names from GitHub API with KV caching
  */
-export async function getKnownPlugins(kvNamespace: any, githubToken?: string): Promise<string[]> {
+export async function getKnownPlugins(kvNamespace: any): Promise<string[]> {
   const CACHE_KEY = 'github:plugin-names'
   const CACHE_TTL = 24 * 60 * 60 // 24 hours
 
@@ -41,30 +43,27 @@ export async function getKnownPlugins(kvNamespace: any, githubToken?: string): P
 
   try {
     console.log('🔍 Fetching plugin names from GitHub API...')
-    
-    // Fetch from GitHub API with optional token and timeout
-    const headers: Record<string, string> = {}
-    if (githubToken) {
-      headers['Authorization'] = `token ${githubToken}`
-      console.log('🔑 Using GitHub token for API request')
-    } else {
-      console.warn('⚠️ No GitHub token provided - rate limits may apply')
+
+    // Fetch from GitHub API with centralized token and timeout
+    const headers: Record<string, string> = {
+      'Authorization': `token ${GITHUB_TOKEN}`
     }
+    console.log('🔑 Using GitHub token for API request')
 
     const response = await fetch('https://api.github.com/orgs/ubiquity-os-marketplace/repos?per_page=100', {
       headers,
       signal: AbortSignal.timeout(5000) // 5 second timeout
     })
-    
+
     if (!response.ok) {
       const remaining = response.headers.get('X-RateLimit-Remaining')
       const resetTime = response.headers.get('X-RateLimit-Reset')
       const errorMessage = `GitHub API error: ${response.status} ${response.statusText}`
-      
+
       if (remaining && resetTime) {
         throw new Error(`${errorMessage} - Rate limit: ${remaining} remaining, resets at ${new Date(parseInt(resetTime) * 1000)}`)
       }
-      
+
       throw new Error(errorMessage)
     }
 
@@ -92,7 +91,7 @@ export async function getKnownPlugins(kvNamespace: any, githubToken?: string): P
  * Fetch known service subdomains from GitHub API with KV caching
  * Looks for repos in ubiquity org that end with .ubq.fi
  */
-export async function getKnownServices(kvNamespace: any, githubToken?: string): Promise<string[]> {
+export async function getKnownServices(kvNamespace: any): Promise<string[]> {
   const CACHE_KEY = 'github:service-names'
   const CACHE_TTL = 24 * 60 * 60 // 24 hours
 
@@ -109,30 +108,27 @@ export async function getKnownServices(kvNamespace: any, githubToken?: string): 
 
   try {
     console.log('🔍 Fetching service names from GitHub API...')
-    
-    // Fetch from GitHub API with optional token and timeout
-    const headers: Record<string, string> = {}
-    if (githubToken) {
-      headers['Authorization'] = `token ${githubToken}`
-      console.log('🔑 Using GitHub token for services API request')
-    } else {
-      console.warn('⚠️ No GitHub token provided for services - rate limits may apply')
+
+    // Fetch from GitHub API with centralized token and timeout
+    const headers: Record<string, string> = {
+      'Authorization': `token ${GITHUB_TOKEN}`
     }
+    console.log('🔑 Using GitHub token for services API request')
 
     const response = await fetch('https://api.github.com/orgs/ubiquity/repos?per_page=100', {
       headers,
       signal: AbortSignal.timeout(5000) // 5 second timeout
     })
-    
+
     if (!response.ok) {
       const remaining = response.headers.get('X-RateLimit-Remaining')
       const resetTime = response.headers.get('X-RateLimit-Reset')
       const errorMessage = `GitHub API error for services: ${response.status} ${response.statusText}`
-      
+
       if (remaining && resetTime) {
         throw new Error(`${errorMessage} - Rate limit: ${remaining} remaining, resets at ${new Date(parseInt(resetTime) * 1000)}`)
       }
-      
+
       throw new Error(errorMessage)
     }
 
@@ -191,7 +187,7 @@ function findBasePlugin(withoutPrefix: string, knownPlugins: string[]): string |
 /**
  * Get plugin name from hostname
  */
-export async function getPluginName(hostname: string, kvNamespace: any, githubToken?: string): Promise<string> {
+export async function getPluginName(hostname: string, kvNamespace: any): Promise<string> {
   if (!isPluginDomain(hostname)) {
     throw new Error('Not a plugin domain')
   }
@@ -199,7 +195,7 @@ export async function getPluginName(hostname: string, kvNamespace: any, githubTo
   const withoutPrefix = hostname.split('.')[0].substring(3) // Remove 'os-'
 
   try {
-    const knownPlugins = await getKnownPlugins(kvNamespace, githubToken)
+    const knownPlugins = await getKnownPlugins(kvNamespace)
 
     // Check if it's an exact match
     if (knownPlugins.includes(withoutPrefix)) {
@@ -244,15 +240,15 @@ export function buildPagesUrl(subdomain: string, url: URL): string {
 /**
  * Build plugin Deno URL
  */
-export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: any, githubToken?: string): Promise<string> {
-  const pluginName = await getPluginName(hostname, kvNamespace, githubToken)
+export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: any): Promise<string> {
+  const pluginName = await getPluginName(hostname, kvNamespace)
   return `https://${pluginName}.deno.dev${url.pathname}${url.search}`
 }
 
 /**
  * Build plugin Pages URL
  */
-export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespace: any, githubToken?: string): Promise<string> {
-  const pluginName = await getPluginName(hostname, kvNamespace, githubToken)
+export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespace: any): Promise<string> {
+  const pluginName = await getPluginName(hostname, kvNamespace)
   return `https://${pluginName}.pages.dev${url.pathname}${url.search}`
 }
