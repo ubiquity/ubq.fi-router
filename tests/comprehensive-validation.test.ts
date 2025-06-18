@@ -200,21 +200,25 @@ describe("Comprehensive Service Validation", () => {
 
     const pluginValidations: PluginValidation[] = []
 
-    // Test first 5 plugins with -main and -development variants
-    const pluginsToTest = knownPlugins.slice(0, 5)
+    // Test ALL plugins with both main and development variants as separate meaningful tests
+    const pluginsToTest = knownPlugins // Test ALL plugins
 
     for (const plugin of pluginsToTest) {
-      const variants = [`${plugin}-main`, `${plugin}-development`]
+      const variants = ['main', 'development']
 
       for (const variant of variants) {
-        const pluginDomain = `os-${plugin}.ubq.fi`
+        // Build the correct domain name for each variant (as the system should work)
+        const pluginDomain = variant === 'main' 
+          ? `os-${plugin}.ubq.fi` 
+          : `os-${plugin}-${variant}.ubq.fi`
+        const variantName = `${plugin}-${variant}`
         console.log(`🔌 Testing plugin: ${pluginDomain}`)
 
         try {
           const url = new URL(`https://${pluginDomain}`)
           const targetUrl = await buildPluginUrl(pluginDomain, url, realKV, githubToken)
 
-          console.log(`   🎯 Plugin name: ${plugin}`)
+          console.log(`   🎯 Plugin variant: ${variantName}`)
           console.log(`   🟦 Target URL: ${targetUrl}`)
 
           // Check manifest - extract base URL properly
@@ -226,7 +230,7 @@ describe("Comprehensive Service Validation", () => {
           // Determine expected service type
           const expectedServiceType: ServiceType = "plugin-deno"
 
-          // Check if ubq.fi domain works
+          // Check if ubq.fi domain works (this will expose DNS configuration issues)
           const ubqResult = await checkUbqDomain(pluginDomain.replace('.ubq.fi', ''))
 
           console.log(`   🔍 Expected: ${expectedServiceType}`)
@@ -234,13 +238,13 @@ describe("Comprehensive Service Validation", () => {
 
           pluginValidations.push({
             pluginDomain,
-            pluginName: variant,
+            pluginName: variantName,
             targetUrl,
             manifestExists: manifestResult.exists,
             validManifest: manifestResult.valid,
-            ubqDomainWorks: true, // We know these work from user confirmation
-            ubqDomainStatus: 200,
-            ubqDomainError: '',
+            ubqDomainWorks: ubqResult.works,
+            ubqDomainStatus: ubqResult.status,
+            ubqDomainError: ubqResult.error,
             expectedServiceType: "plugin-deno",
             actualServiceType: "plugin-deno"
           })
@@ -250,7 +254,7 @@ describe("Comprehensive Service Validation", () => {
 
           pluginValidations.push({
             pluginDomain,
-            pluginName: variant,
+            pluginName: variantName,
             targetUrl: 'error',
             manifestExists: false,
             validManifest: false,
@@ -382,5 +386,5 @@ describe("Comprehensive Service Validation", () => {
     // Store results for potential debugging
     console.log(`\n💾 Validation data available for ${validations.length} services and ${pluginValidations.length} plugins`)
 
-  }, 60000) // 60 second timeout for comprehensive testing
+  }, 300000) // 5 minute timeout for comprehensive testing
 })
