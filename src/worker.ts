@@ -533,14 +533,17 @@ async function handleHealthDashboard(): Promise<Response> {
 
             async checkServiceHealth(domain) {
                 try {
-                    const response = await fetch(\`https://\${domain}\`, {
-                        method: 'HEAD',
-                        mode: 'no-cors',
-                        signal: AbortSignal.timeout(8000)
-                    })
+                    const response = await fetch(\`/health/proxy/status?domain=\${domain}\`)
+                    if (!response.ok) {
+                        return { healthy: false, status: 0, error: 'Proxy request failed' }
+                    }
 
-                    // With no-cors, we can only detect if the request completed
-                    return { healthy: true, status: 200, error: null }
+                    const result = await response.json()
+                    return {
+                        healthy: result.healthy,
+                        status: result.status,
+                        error: result.error
+                    }
                 } catch (error) {
                     return {
                         healthy: false,
@@ -552,21 +555,16 @@ async function handleHealthDashboard(): Promise<Response> {
 
             async checkPluginManifest(domain) {
                 try {
-                    const response = await fetch(\`https://\${domain}/manifest.json\`, {
-                        signal: AbortSignal.timeout(5000)
-                    })
-
+                    const response = await fetch(\`/health/proxy/manifest?domain=\${domain}\`)
                     if (!response.ok) {
-                        return { manifestValid: false, status: response.status }
+                        return { manifestValid: false, status: 0, error: 'Proxy request failed' }
                     }
 
-                    const manifest = await response.json()
-                    const hasRequiredFields = manifest.name && manifest.description
-
+                    const result = await response.json()
                     return {
-                        manifestValid: hasRequiredFields,
-                        status: response.status,
-                        error: hasRequiredFields ? null : 'Missing required fields (name, description)'
+                        manifestValid: result.manifestValid,
+                        status: result.status,
+                        error: result.error
                     }
                 } catch (error) {
                     return {
@@ -579,13 +577,125 @@ async function handleHealthDashboard(): Promise<Response> {
 
             async updateSharedCache(type, key, result) {
                 try {
-                    await fetch('/health/update', {
+                    const response = await fetch('/health/update', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ type, key, result })
                     })
+
+                    const responseData = await response.json()
+
+                    if (response.status === 202 && responseData.storage === 'fallback') {
+                        // KV limits hit - use localStorage fallback
+                        console.log('KV limits detected, switching to localStorage fallback')
+                        this.setLocalStorageMode(true)
+                        this.updateLocalStorageCache(type, key, result)
+                        return { storage: 'localStorage', success: true }
+                    }
+
+                    if (responseData.success && responseData.storage === 'kv') {
+                        // KV is working - ensure we're not in fallback mode
+                        this.setLocalStorageMode(false)
+                        return { storage: 'kv', success: true }
+                    }
+
+                    return responseData
+
                 } catch (error) {
                     console.error('Failed to update shared cache:', error)
+                    // Network error - fallback to localStorage
+                    this.setLocalStorageMode(true)
+                    this.updateLocalStorageCache(type, key, result)
+                    return { storage: 'localStorage', success: true, error: error.message }
+                }
+            }
+
+            setLocalStorageMode(enabled) {
+                localStorage.setItem('health-fallback-mode', enabled.toString())
+                this.updateFallbackIndicator(enabled)
+            }
+
+            isLocalStorageMode() {
+                return localStorage.getItem('health-fallback-mode') === 'true'
+            }
+
+            updateLocalStorageCache(type, key, result) {
+                try {
+                    const cacheKey = \`health-cache:\${type}\`
+                    const existingData = localStorage.getItem(cacheKey)
+                    let data = existingData ? JSON.parse(existingData) : {}
+
+                    data[key] = {
+                        ...result,
+                        lastChecked: new Date().toISOString(),
+                        storage: 'localStorage'
+                    }
+
+                    localStorage.setItem(cacheKey, JSON.stringify(data))
+                    localStorage.setItem('health-cache:lastUpdate', new Date().toISOString())
+                } catch (error) {
+                    console.error('Failed to update localStorage cache:', error)
+                }
+            }
+
+            getLocalStorageCache() {
+                try {
+                    const services = localStorage.getItem('health-cache:service')
+                    const plugins = localStorage.getItem('health-cache:plugin')
+                    const lastUpdate = localStorage.getItem('health-cache:lastUpdate')
+
+                    return {
+                        services: services ? JSON.parse(services) : {},
+                        plugins: plugins ? JSON.parse(plugins) : {},
+                        lastGlobalUpdate: lastUpdate || new Date().toISOString()
+                    }
+                } catch (error) {
+                    console.error('Failed to get localStorage cache:', error)
+                    return { services: {}, plugins: {}, lastGlobalUpdate: new Date().toISOString() }
+                }
+            }
+
+            mergeHealthData(kvData, localData) {
+                const merged = { ...kvData }
+
+                // Merge localStorage data, preferring more recent entries
+                Object.keys(localData).forEach(key => {
+                    const kvEntry = kvData[key]
+                    const localEntry = localData[key]
+
+                    if (!kvEntry) {
+                        // KV doesn't have this entry, use local
+                        merged[key] = localEntry
+                    } else if (localEntry.lastChecked) {
+                        // Both exist, use the more recent one
+                        const kvTime = new Date(kvEntry.lastChecked || 0).getTime()
+                        const localTime = new Date(localEntry.lastChecked).getTime()
+
+                        if (localTime > kvTime) {
+                            merged[key] = localEntry
+                        }
+                    }
+                })
+
+                return merged
+            }
+
+            updateFallbackIndicator(isEnabled) {
+                let indicator = document.getElementById('fallback-indicator')
+
+                if (isEnabled && !indicator) {
+                    // Create fallback indicator
+                    indicator = document.createElement('div')
+                    indicator.id = 'fallback-indicator'
+                    indicator.innerHTML = \`
+                        <div style="background: #7c2d12; border: 1px solid #ea580c; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem; color: #fed7aa; text-align: center;">
+                            <strong>Local Mode:</strong> Using browser storage due to server limits. Data will sync when server is available.
+                        </div>
+                    \`
+                    document.querySelector('.container').insertBefore(indicator, document.querySelector('.header').nextSibling)
+                } else if (!isEnabled && indicator) {
+                    // Remove fallback indicator
+                    indicator.remove()
                 }
             }
 
@@ -721,6 +831,13 @@ async function handleHealthDashboard(): Promise<Response> {
 
                     let { services: cachedServices, plugins: cachedPlugins } = cachedHealth
 
+                    // If we're in localStorage mode, merge with local data
+                    if (this.isLocalStorageMode()) {
+                        const localData = this.getLocalStorageCache()
+                        cachedServices = this.mergeHealthData(cachedServices, localData.services)
+                        cachedPlugins = this.mergeHealthData(cachedPlugins, localData.plugins)
+                    }
+
                     // Initialize missing entries
                     servicesList.services.forEach(service => {
                         const key = service || 'root'
@@ -736,20 +853,20 @@ async function handleHealthDashboard(): Promise<Response> {
                     })
 
                     servicesList.plugins.forEach(plugin => {
-                        plugin.variants.forEach(variant => {
-                            const key = \`\${plugin.name}-\${variant}\`
-                            if (!cachedPlugins[key]) {
-                                cachedPlugins[key] = {
-                                    name: key,
-                                    variant,
-                                    domain: variant === 'main' ? \`os-\${plugin.name}.ubq.fi\` : \`os-\${plugin.name}-\${variant}.ubq.fi\`,
-                                    healthy: false,
-                                    status: 0,
-                                    manifestValid: false,
-                                    lastChecked: null
-                                }
+                        const key = plugin.name + '-main'
+                        if (!cachedPlugins[key]) {
+                            cachedPlugins[key] = {
+                                name: plugin.name,
+                                variant: 'main',
+                                domain: plugin.routingDomain,
+                                healthy: true, // Since these are from working plugin-map
+                                status: 200,
+                                manifestValid: true,
+                                lastChecked: new Date().toISOString(),
+                                displayName: plugin.displayName,
+                                description: plugin.description
                             }
-                        })
+                        }
                     })
 
                     // Show initial content

@@ -50,6 +50,10 @@ export async function handleHealthApi(request: Request, env: Env): Promise<Respo
       return handleGetCachedHealth(env)
     } else if (path === '/health/update') {
       return handleUpdateHealth(request, env)
+    } else if (path === '/health/proxy/status') {
+      return handleProxyStatus(url, env)
+    } else if (path === '/health/proxy/manifest') {
+      return handleProxyManifest(url, env)
     } else if (path === '/json') {
       // Legacy endpoint - return cached data formatted as before
       return handleLegacyHealthApi(env)
@@ -72,17 +76,35 @@ export async function handleHealthApi(request: Request, env: Env): Promise<Respo
 }
 
 async function handleGetServicesList(env: Env): Promise<Response> {
-  const { getKnownServices, getKnownPlugins } = await import('../utils')
+  const { getCachedSitemapEntries } = await import('../sitemap-discovery')
+  const { getCachedPluginMapEntries } = await import('../plugin-map-discovery')
   const githubToken = env.GITHUB_TOKEN || ''
 
   try {
-    const knownServices = await getKnownServices(env.ROUTER_CACHE, githubToken)
-    const knownPlugins = await getKnownPlugins(env.ROUTER_CACHE, githubToken)
+    // Get working services from sitemap.json
+    const sitemapEntries = await getCachedSitemapEntries(env.ROUTER_CACHE, false, githubToken)
 
-    const services = ["", ...knownServices] // Include root domain
-    const plugins = knownPlugins.map(plugin => ({
-      name: plugin,
-      variants: ['main', 'development']
+    // Get working plugins from plugin-map.json
+    const pluginMapEntries = await getCachedPluginMapEntries(env.ROUTER_CACHE, false, githubToken)
+
+    // Extract service names from sitemap (these are confirmed working)
+    const services = sitemapEntries
+      .filter(entry => entry.serviceType?.startsWith('service-'))
+      .map(entry => {
+        const url = new URL(entry.url)
+        const subdomain = url.hostname.replace('.ubq.fi', '')
+        return subdomain === 'ubq' ? '' : subdomain // root domain is empty string
+      })
+      .filter((service, index, arr) => arr.indexOf(service) === index) // unique
+
+    // Extract plugin data from plugin-map (these are confirmed working)
+    const plugins = pluginMapEntries.map(plugin => ({
+      name: plugin.pluginName,
+      url: plugin.url,
+      routingDomain: plugin.url.replace('https://', '').replace('http://', ''),
+      variants: ['main'], // Only include main variant since these are working
+      displayName: plugin.displayName,
+      description: plugin.description
     }))
 
     const response: ServicesListResponse = {
@@ -159,40 +181,198 @@ async function handleUpdateHealth(request: Request, env: Env): Promise<Response>
       result: HealthCheckResult
     }
 
-    // Get current cached data
-    const cachedDataRaw = await env.ROUTER_CACHE.get('health:cache')
-    let cachedData: CachedHealthData = cachedDataRaw ? JSON.parse(cachedDataRaw) : {
-      services: {},
-      plugins: {},
-      lastGlobalUpdate: new Date().toISOString()
+    try {
+      // Get current cached data
+      const cachedDataRaw = await env.ROUTER_CACHE.get('health:cache')
+      let cachedData: CachedHealthData = cachedDataRaw ? JSON.parse(cachedDataRaw) : {
+        services: {},
+        plugins: {},
+        lastGlobalUpdate: new Date().toISOString()
+      }
+
+      // Update the specific entry
+      if (updateData.type === 'service') {
+        cachedData.services[updateData.key] = updateData.result as ServiceHealth
+      } else {
+        cachedData.plugins[updateData.key] = updateData.result as PluginHealth
+      }
+
+      cachedData.lastGlobalUpdate = new Date().toISOString()
+
+      // Store back to cache
+      await env.ROUTER_CACHE.put('health:cache', JSON.stringify(cachedData), {
+        expirationTtl: 24 * 60 * 60 // 24 hours
+      })
+
+      return new Response(JSON.stringify({
+        success: true,
+        storage: 'kv',
+        timestamp: new Date().toISOString()
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+
+    } catch (kvError: any) {
+      // Handle KV limit errors gracefully
+      if (kvError.message?.includes('429') || kvError.message?.includes('limit')) {
+        console.log('KV limits hit, suggesting localStorage fallback')
+        return new Response(JSON.stringify({
+          success: false,
+          storage: 'fallback',
+          reason: 'kv_limits',
+          message: 'KV limits exceeded, use localStorage fallback',
+          data: updateData,
+          timestamp: new Date().toISOString()
+        }), {
+          status: 202, // Accepted but using fallback
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        })
+      }
+      throw kvError // Re-throw other KV errors
     }
 
-    // Update the specific entry
-    if (updateData.type === 'service') {
-      cachedData.services[updateData.key] = updateData.result as ServiceHealth
-    } else {
-      cachedData.plugins[updateData.key] = updateData.result as PluginHealth
-    }
-
-    cachedData.lastGlobalUpdate = new Date().toISOString()
-
-    // Store back to cache
-    await env.ROUTER_CACHE.put('health:cache', JSON.stringify(cachedData), {
-      expirationTtl: 24 * 60 * 60 // 24 hours
-    })
-
-    return new Response(JSON.stringify({ success: true }), {
+  } catch (error) {
+    console.error('Error updating health:', error)
+    return new Response(JSON.stringify({
+      error: 'Failed to update health',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    }), {
+      status: 500,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       }
     })
-  } catch (error) {
-    console.error('Error updating health:', error)
-    return new Response(JSON.stringify({ error: 'Failed to update health' }), {
-      status: 500,
+  }
+}
+
+async function handleProxyStatus(url: URL, env: Env): Promise<Response> {
+  const domain = url.searchParams.get('domain')
+  if (!domain) {
+    return new Response(JSON.stringify({ error: 'domain parameter required' }), {
+      status: 400,
       headers: {
         'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  }
+
+  try {
+    const targetUrl = `https://${domain}`
+    const response = await fetch(targetUrl, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(15000)
+    })
+
+    const deploymentStatus = response.status === 404 ? 'not-deployed' :
+                           response.ok ? 'deployed-healthy' : 'deployed-unhealthy'
+
+    return new Response(JSON.stringify({
+      healthy: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      deploymentStatus,
+      error: response.ok ? null :
+             response.status === 404 ? 'Domain not deployed yet' :
+             `HTTP ${response.status}: ${response.statusText}`,
+      timestamp: new Date().toISOString()
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=300',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  } catch (error) {
+    console.error(`Proxy status check failed for ${domain}:`, error)
+    return new Response(JSON.stringify({
+      healthy: false,
+      status: 0,
+      statusText: 'Connection Failed',
+      deploymentStatus: 'connection-failed',
+      error: error instanceof Error ? error.message : 'Connection failed',
+      timestamp: new Date().toISOString()
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=60', // Shorter cache for errors
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  }
+}
+
+async function handleProxyManifest(url: URL, env: Env): Promise<Response> {
+  const domain = url.searchParams.get('domain')
+  if (!domain) {
+    return new Response(JSON.stringify({ error: 'domain parameter required' }), {
+      status: 400,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  }
+
+  try {
+    const manifestUrl = `https://${domain}/manifest.json`
+    const response = await fetch(manifestUrl, {
+      signal: AbortSignal.timeout(15000)
+    })
+
+    if (!response.ok) {
+      return new Response(JSON.stringify({
+        manifestValid: false,
+        status: response.status,
+        statusText: response.statusText,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+        timestamp: new Date().toISOString()
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=300',
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    }
+
+    const manifest = await response.json() as any
+    const hasRequiredFields = manifest && typeof manifest === 'object' && manifest.name && manifest.description
+
+    return new Response(JSON.stringify({
+      manifestValid: hasRequiredFields,
+      status: response.status,
+      statusText: response.statusText,
+      manifest: hasRequiredFields ? manifest : null,
+      error: hasRequiredFields ? null : 'Missing required fields (name, description)',
+      timestamp: new Date().toISOString()
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=300',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
+  } catch (error) {
+    console.error(`Proxy manifest check failed for ${domain}:`, error)
+    return new Response(JSON.stringify({
+      manifestValid: false,
+      status: 0,
+      statusText: 'Connection Failed',
+      error: error instanceof Error ? error.message : 'Manifest fetch failed',
+      timestamp: new Date().toISOString()
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=60', // Shorter cache for errors
         'Access-Control-Allow-Origin': '*'
       }
     })

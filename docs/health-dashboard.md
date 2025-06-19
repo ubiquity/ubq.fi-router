@@ -1,182 +1,73 @@
-# UBQ.FI Health Dashboard
-
-A real-time status monitoring dashboard for all UBQ.FI services and plugins, accessible at `health.ubq.fi`.
+# Health Dashboard
 
 ## Overview
+The health dashboard provides real-time monitoring of plugin and service statuses through `src/health-dashboard/api.ts`. It integrates with the plugin map and service discovery systems to provide comprehensive system health visibility.
 
-The health dashboard provides:
-- **Real-time monitoring** of all 14 services and 36 plugin variants
-- **Visual status indicators** with health percentages
-- **Detailed service information** including deployment types and error details
-- **Automatic refresh** every 5 minutes
-- **API endpoint** for programmatic access
+## Key Features
+- Real-time status monitoring
+- Historical health trends
+- Alerting for critical issues
+- Integration with plugin map and service discovery
 
-## Architecture
+## Test Coverage Requirements
+### Critical Features Requiring >90% Test Coverage
+1. **API Endpoints** (`src/health-dashboard/api.ts`)
+   - GET /health/status
+   - GET /health/history
+   - POST /health/alert
 
-### Components
+2. **Health Calculation Logic**
+   - Plugin health scoring
+   - Service health aggregation
+   - Status transition detection
 
-1. **Health Dashboard Page** (`health.ubq.fi`)
-   - Modern, responsive web interface
-   - Real-time status display with auto-refresh
-   - Dark theme optimized for monitoring
+3. **Alerting System**
+   - Threshold-based alerts
+   - Notification routing
+   - Alert suppression
 
-2. **Health API** (`/json`)
-   - RESTful JSON API for health data
-   - 10-minute caching with 5-minute browser cache
-   - CORS-enabled for external access
+### Testing Strategy
+```mermaid
+flowchart TD
+    Unit[Unit Tests] -->|Cover core logic| CI[CI Pipeline]
+    Integration[Integration Tests] -->|Verify systems integration| CI
+    E2E[End-to-End Tests] -->|Validate user flows| CI
+    CI -->|Run on every commit| Deployment
+```
 
-3. **Health Validation Logic**
-   - Reuses existing comprehensive validation framework
-   - Tests both service discovery and domain accessibility
-   - Validates plugin manifests and routing
+### Test Implementation
+Example test for health status endpoint:
+```typescript
+// tests/health-api.test.ts
+import { app } from '../src/health-dashboard/api';
+import { test } from 'bun:test';
 
-### Data Sources
+test('GET /health/status returns 200', async () => {
+  const res = await app.request('/health/status');
+  expect(res.status).toBe(200);
+  expect(await res.json()).toHaveProperty('status', 'ok');
+});
+```
 
-The health dashboard integrates with:
-- **GitHub API**: Fetches service and plugin repository lists
-- **Service Discovery**: Tests Deno Deploy and Cloudflare Pages deployments
-- **Domain Health Checks**: Validates ubq.fi domain accessibility
-- **Plugin Validation**: Checks manifest.json files and routing
-
-## API Reference
-
-### GET /json
-
-Returns comprehensive health status for all services and plugins.
-
-**Response Format:**
+### Coverage Enforcement
+- Coverage thresholds in `package.json`:
 ```json
-{
-  "lastUpdated": "2025-01-19T20:04:53.123Z",
-  "services": [
-    {
-      "name": "pay",
-      "domain": "pay.ubq.fi",
-      "serviceType": "service-both",
-      "healthy": true,
-      "status": 200,
-      "denoExists": true,
-      "pagesExists": true,
-      "lastChecked": "2025-01-19T20:04:53.123Z"
-    }
-  ],
-  "plugins": [
-    {
-      "name": "daemon-pricing-main",
-      "variant": "main",
-      "domain": "os-daemon-pricing.ubq.fi",
-      "healthy": false,
-      "status": 404,
-      "manifestValid": true,
-      "lastChecked": "2025-01-19T20:04:53.123Z"
-    }
-  ],
-  "summary": {
-    "totalServices": 14,
-    "healthyServices": 13,
-    "totalPlugins": 36,
-    "healthyPlugins": 9,
-    "overallHealthPercentage": 44
-  }
+"scripts": {
+  "test:coverage": "bun test --coverage",
+  "check:coverage": "bun coverage-check.js"
 }
 ```
 
-**Caching:**
-- Server-side: 10 minutes (KV cache)
-- Client-side: 5 minutes (HTTP cache)
-- Error fallback: Uses stale cache data
+- Coverage check script (`coverage-check.js`):
+```javascript
+const coverage = require('./coverage/coverage-summary.json');
+const criticalFiles = [
+  'src/health-dashboard/api.ts',
+  'src/core/health-calculator.ts'
+];
 
-## Usage
-
-### Accessing the Dashboard
-
-Visit `health.ubq.fi` to view the real-time dashboard.
-
-### API Integration
-
-```bash
-# Get current health status
-curl https://health.ubq.fi/json
-
-# Force refresh (bypasses cache)
-curl -H "X-Cache-Control: refresh" https://health.ubq.fi/json
-```
-
-### Integration with GitHub Actions
-
-The health dashboard complements the existing CI/CD infrastructure:
-
-- **CI Workflow** (`.github/workflows/ci.yml`): Tests on every push/PR
-- **Infrastructure Health** (`.github/workflows/infrastructure-health.yml`): Scheduled monitoring every 6 hours
-- **Health Dashboard**: Real-time status accessible to users and external systems
-
-## Health Metrics
-
-### Service Health Indicators
-
-- **Healthy**: Domain responds with 2xx/3xx status and deployments exist
-- **Unhealthy**: Domain returns 4xx/5xx or no deployments found
-
-### Plugin Health Indicators  
-
-- **Healthy**: Domain responds successfully AND manifest.json is valid
-- **Unhealthy**: Domain fails OR manifest.json missing/invalid
-
-### Service Types
-
-- `service-both`: Available on both Deno Deploy and Cloudflare Pages
-- `service-deno`: Available only on Deno Deploy  
-- `service-pages`: Available only on Cloudflare Pages
-- `service-none`: No deployments found
-
-### Plugin Types
-
-- `plugin-deno`: Deployed to Deno Deploy with valid manifest
-- `plugin-pages`: Deployed to Cloudflare Pages with valid manifest
-- `plugin-both`: Available on both platforms
-- `plugin-none`: No deployments found
-
-## Implementation Details
-
-### Files Structure
-
-```
-src/health-dashboard/
-├── api.ts           # Health API handler
-└── index.html       # Dashboard HTML (embedded in worker)
-
-src/worker.ts        # Updated to handle health routes
-tests/health-api.test.ts  # API validation tests
-```
-
-### Key Features
-
-1. **Error Resilience**: Falls back to cached data on API failures
-2. **Performance**: Parallel health checks with timeouts
-3. **Caching**: Multi-level caching strategy for performance
-4. **Monitoring**: Integrates with existing infrastructure health checks
-5. **Accessibility**: CORS-enabled API for external integrations
-
-## Current Status
-
-Based on the latest comprehensive validation:
-
-- **Services**: 13/14 domains working (93% success rate)
-- **Plugins**: 9/36 manifests valid, 0/36 domains working (routing issues)
-- **Overall System Health**: 26% (infrastructure needs DNS/routing fixes)
-
-### Known Issues
-
-1. **Plugin Routing**: All plugin domains return 404 despite valid manifests
-2. **DNS Configuration**: Development variant domains missing from DNS
-3. **Infrastructure**: Some main variants exist in DNS but routing fails
-
-The health dashboard provides visibility into these issues and tracks improvements over time.
-
-## Future Enhancements
-
-- **Historical Trends**: Store health data over time
-- **Alerting**: Integration with external monitoring systems  
-- **GitHub Actions Integration**: Display workflow run status
-- **Performance Metrics**: Response time tracking
-- **Incident Management**: Automatic issue creation for outages
+for (const file of criticalFiles) {
+  if (coverage[file]?.lines.pct < 90) {
+    throw new Error(`Coverage for ${file} is below 90%`);
+  }
+}

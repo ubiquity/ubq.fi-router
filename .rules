@@ -1,0 +1,23 @@
+# Documentation Rules
+documentation-update-required: Update docs within 24hrs of architectural changes
+test-coverage-gap: Critical features require >90% test coverage
+architecture-drift: Docs must be updated when code diverges from architecture
+
+# Project-Specific Patterns
+plugin-discovery: Use src/plugin-map-discovery.ts for primary discovery mechanism
+sitemap-generation: Always use src/sitemap-generator.ts for XML generation
+health-dashboard: Critical endpoints defined in src/health-dashboard/api.ts
+routing-pattern: Central routing handled by src/routing.ts
+
+# Development Practices
+test-strategy: 
+  - Critical paths: >90% coverage
+  - Core functionality: >80% coverage
+  - Utilities: >70% coverage
+deployment-process: Use wrangler with GitHub Actions (docs/deployment.md)
+dns-management: Use scripts/update-dns-records.ts for DNS updates
+
+# File Organization
+utils-pattern: All utilities in src/utils/ with index.ts barrel
+test-location: All tests in tests/ directory mirroring src structure
+script-convention: Administrative scripts in scripts/ directory

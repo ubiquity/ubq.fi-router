@@ -15,7 +15,7 @@ export async function checkDeploymentExists(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, {
       method: 'HEAD',
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(15000)
     })
     // Only 2xx status codes indicate working services
     return response.status >= 200 && response.status < 300
@@ -32,15 +32,15 @@ export async function fetchPluginManifest(url: string): Promise<PluginManifest> 
   const manifestUrl = `${url}/manifest.json`
   const response = await fetch(manifestUrl, {
     method: 'GET',
-    signal: AbortSignal.timeout(5000)
+    signal: AbortSignal.timeout(15000)
   })
-  
+
   if (!response.ok) {
     throw new Error(`Manifest fetch failed: ${response.status} ${response.statusText} for ${manifestUrl}`)
   }
 
   const manifest = await response.json() as PluginManifest
-  
+
   // CRASH if manifest is invalid
   if (!manifest.name || !manifest.description) {
     throw new Error(`Invalid manifest: missing required fields 'name' or 'description' in ${manifestUrl}`)
@@ -80,13 +80,13 @@ export async function discoverServiceType(subdomain: string, url: URL): Promise<
 export async function discoverPluginType(pluginName: string): Promise<ServiceType> {
   // Check if plugin exists on Deno Deploy by testing manifest
   const manifestUrl = `https://${pluginName}-main.deno.dev/manifest.json`
-  
+
   try {
     const response = await fetch(manifestUrl, {
       method: 'GET',
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(15000)
     })
-    
+
     if (response.ok) {
       const manifest = await response.json() as PluginManifest
       if (manifest.name && manifest.description) {
@@ -106,7 +106,7 @@ export async function getAllServices(kvNamespace: any, githubToken: string): Pro
   if (!githubToken) {
     throw new Error('GITHUB_TOKEN is required but not provided')
   }
-  
+
   return await getKnownServices(kvNamespace, githubToken)
 }
 
@@ -117,7 +117,7 @@ export async function getAllPlugins(kvNamespace: any, githubToken: string): Prom
   if (!githubToken) {
     throw new Error('GITHUB_TOKEN is required but not provided')
   }
-  
+
   return await getKnownPlugins(kvNamespace, githubToken)
 }
 
@@ -127,26 +127,26 @@ export async function getAllPlugins(kvNamespace: any, githubToken: string): Prom
 export async function discoverAllServices(kvNamespace: any, githubToken: string): Promise<Map<string, ServiceType>> {
   const services = await getAllServices(kvNamespace, githubToken)
   const servicesToTest = ['', ...services] // Include root domain
-  
+
   const results = new Map<string, ServiceType>()
-  
+
   // Process in batches to avoid overwhelming APIs
   const batchSize = 5
   for (let i = 0; i < servicesToTest.length; i += batchSize) {
     const batch = servicesToTest.slice(i, i + batchSize)
-    
+
     const batchPromises = batch.map(async (subdomain) => {
       const url = new URL(subdomain ? `https://${subdomain}.ubq.fi` : 'https://ubq.fi')
       const serviceType = await discoverServiceType(subdomain, url)
       return [subdomain, serviceType] as const
     })
-    
+
     const batchResults = await Promise.all(batchPromises)
     batchResults.forEach(([subdomain, serviceType]) => {
       results.set(subdomain, serviceType)
     })
   }
-  
+
   return results
 }
 
@@ -156,15 +156,15 @@ export async function discoverAllServices(kvNamespace: any, githubToken: string)
 export async function discoverAllPlugins(kvNamespace: any, githubToken: string): Promise<Map<string, { serviceType: ServiceType; manifest?: PluginManifest }>> {
   const plugins = await getAllPlugins(kvNamespace, githubToken)
   const results = new Map<string, { serviceType: ServiceType; manifest?: PluginManifest }>()
-  
+
   // Process in batches
   const batchSize = 3
   for (let i = 0; i < plugins.length; i += batchSize) {
     const batch = plugins.slice(i, i + batchSize)
-    
+
     const batchPromises = batch.map(async (pluginName) => {
       const serviceType = await discoverPluginType(pluginName)
-      
+
       let manifest: PluginManifest | undefined
       if (serviceType !== "plugin-none") {
         try {
@@ -174,15 +174,15 @@ export async function discoverAllPlugins(kvNamespace: any, githubToken: string):
           // Manifest fetch failed but plugin exists - this is OK
         }
       }
-      
+
       return [pluginName, { serviceType, manifest }] as const
     })
-    
+
     const batchResults = await Promise.all(batchPromises)
     batchResults.forEach(([pluginName, result]) => {
       results.set(pluginName, result)
     })
   }
-  
+
   return results
 }
