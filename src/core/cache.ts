@@ -17,18 +17,18 @@ export async function getFromCache<T>(
   config: CacheConfig
 ): Promise<T | null> {
   const fullKey = `${config.prefix}:${key}`
-  
+
   try {
     const cached = await kvNamespace.get(fullKey, { type: 'json' })
     if (cached === null) {
       return null
     }
-    
+
     // CRASH if cache is corrupt/unexpected type
     if (typeof cached !== 'object') {
       throw new Error(`Cache corruption: expected object but got ${typeof cached} for key ${fullKey}`)
     }
-    
+
     return cached as T
   } catch (error) {
     // Re-throw to crash - no recovery
@@ -43,14 +43,37 @@ export async function putToCache<T>(
   kvNamespace: any,
   key: string,
   value: T,
-  config: CacheConfig
+  config: CacheConfig,
+  // This is a diagnostic parameter, not for general use
+  // It is used to pass the request object for logging purposes
+  request?: any
 ): Promise<void> {
   const fullKey = `${config.prefix}:${key}`
   const ttlSeconds = config.ttlHours * 60 * 60
-  
+
   try {
-    await kvNamespace.put(fullKey, JSON.stringify(value), { 
-      expirationTtl: ttlSeconds 
+    // Read-before-write optimization
+    const existingValue = await kvNamespace.get(fullKey)
+    const newValue = JSON.stringify(value)
+
+    if (existingValue === newValue) {
+        if (request) {
+            const logEntry = {
+                level: "INFO",
+                message: `KV write skipped for key '${fullKey}', content unchanged.`,
+                url: request.url,
+                method: request.method,
+                headers: Object.fromEntries(request.headers),
+            };
+            console.log(JSON.stringify(logEntry, null, 2));
+        } else {
+            console.log(`KV write skipped for key '${fullKey}', content unchanged.`);
+        }
+        return; // Skip the write
+    }
+
+    await kvNamespace.put(fullKey, newValue, {
+      expirationTtl: ttlSeconds
     })
   } catch (error) {
     // CRASH if cache write fails
@@ -67,7 +90,7 @@ export async function clearFromCache(
   config: CacheConfig
 ): Promise<void> {
   const fullKey = `${config.prefix}:${key}`
-  
+
   try {
     await kvNamespace.delete(fullKey)
   } catch (error) {
@@ -84,10 +107,10 @@ export async function clearAllCache(
 ): Promise<number> {
   try {
     const list = await kvNamespace.list({ prefix: `${config.prefix}:` })
-    const deletePromises = list.keys.map((item: any) => 
+    const deletePromises = list.keys.map((item: any) =>
       kvNamespace.delete(item.name)
     )
-    
+
     await Promise.all(deletePromises)
     return list.keys.length
   } catch (error) {

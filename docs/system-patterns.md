@@ -37,3 +37,8 @@ flowchart LR
 - Factory pattern for discovery mechanisms
 - Strategy pattern for different routing scenarios
 - Observer pattern for plugin changes
+
+## Caching
+- **TTL Policy**: Positive cache (found services) TTL is 1 hour. Negative cache (not-found services) is 5 minutes.
+- **Storage**: Cloudflare KV is used for all caching.
+- **Manual Control**: Cache can be managed via `X-Cache-Control` header (`refresh`, `clear`, `clear-all`).

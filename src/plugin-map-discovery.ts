@@ -27,7 +27,7 @@ export async function discoverAllForPluginMap(kvNamespace: any, githubToken?: st
     // For plugin-map, we need detailed deployment info
     const mainAvailable = serviceType !== 'plugin-none'
     const developmentAvailable = false // Simplified - we only check main for now
-    
+
     const discovery = {
       pluginName,
       serviceType,
@@ -36,7 +36,7 @@ export async function discoverAllForPluginMap(kvNamespace: any, githubToken?: st
       mainAvailable,
       developmentAvailable
     }
-    
+
     entries.push(createPluginMapEntry(discovery))
   }
 
@@ -46,7 +46,14 @@ export async function discoverAllForPluginMap(kvNamespace: any, githubToken?: st
 /**
  * Get cached plugin-map entries or generate fresh - CRASH on any failure
  */
-export async function getCachedPluginMapEntries(kvNamespace: any, forceRefresh = false, githubToken?: string): Promise<PluginMapEntry[]> {
+export async function getCachedPluginMapEntries(
+  kvNamespace: any,
+  forceRefresh = false,
+  githubToken?: string,
+  // This is a diagnostic parameter, not for general use
+  // It is used to pass the request object for logging purposes
+  request?: any
+  ): Promise<PluginMapEntry[]> {
   const CACHE_KEY = 'entries'
 
   if (!forceRefresh) {
@@ -60,7 +67,7 @@ export async function getCachedPluginMapEntries(kvNamespace: any, forceRefresh =
   const entries = await discoverAllForPluginMap(kvNamespace, githubToken)
 
   // Cache the results - CRASH if fails
-  await putToCache(kvNamespace, CACHE_KEY, entries, CACHE_CONFIGS.PLUGIN_MAP)
+  await putToCache(kvNamespace, CACHE_KEY, entries, CACHE_CONFIGS.PLUGIN_MAP, request)
 
   return entries
 }

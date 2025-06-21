@@ -47,7 +47,14 @@ export async function discoverAllForSitemap(kvNamespace: any, githubToken?: stri
 /**
  * Get cached sitemap entries or generate fresh - CRASH on any failure
  */
-export async function getCachedSitemapEntries(kvNamespace: any, forceRefresh = false, githubToken?: string): Promise<SitemapEntry[]> {
+export async function getCachedSitemapEntries(
+  kvNamespace: any,
+  forceRefresh = false,
+  githubToken?: string,
+  // This is a diagnostic parameter, not for general use
+  // It is used to pass the request object for logging purposes
+  request?: any
+  ): Promise<SitemapEntry[]> {
   const CACHE_KEY = 'entries'
 
   if (!forceRefresh) {
@@ -61,7 +68,7 @@ export async function getCachedSitemapEntries(kvNamespace: any, forceRefresh = f
   const entries = await discoverAllForSitemap(kvNamespace, githubToken)
 
   // Cache the results - CRASH if fails
-  await putToCache(kvNamespace, CACHE_KEY, entries, CACHE_CONFIGS.SITEMAP)
+  await putToCache(kvNamespace, CACHE_KEY, entries, CACHE_CONFIGS.SITEMAP, request)
 
   return entries
 }

@@ -7,7 +7,7 @@
 4. Increasing test coverage for health dashboard
 
 ## Recent Changes
-- Created core documentation files: 
+- Created core documentation files:
   - `project-brief.md`
   - `product-context.md`
   - `system-patterns.md`

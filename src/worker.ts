@@ -34,20 +34,20 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   // Handle sitemap endpoints
   if (url.pathname === '/sitemap.xml') {
-    return await handleSitemapXml(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
+    return await handleSitemapXml(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN, request)
   }
 
   if (url.pathname === '/sitemap.json') {
-    return await handleSitemapJson(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
+    return await handleSitemapJson(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN, request)
   }
 
   // Handle plugin-map endpoints
   if (url.pathname === '/plugin-map.xml') {
-    return await handlePluginMapXml(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
+    return await handlePluginMapXml(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN, request)
   }
 
   if (url.pathname === '/plugin-map.json') {
-    return await handlePluginMapJson(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN)
+    return await handlePluginMapJson(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN, request)
   }
 
   // Generate cache key from hostname
@@ -71,10 +71,20 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   let serviceType: ServiceType
 
   if (cacheControl === 'refresh') {
+    console.log(JSON.stringify({
+      level: "INFO",
+      message: `Cache refresh triggered for ${request.url}`,
+      url: request.url,
+      sourceIp: request.headers.get('CF-Connecting-IP'),
+      userAgent: request.headers.get('User-Agent'),
+      referer: request.headers.get('Referer'),
+      headers: Object.fromEntries(request.headers),
+    }));
     // Force refresh: skip cache and discover services
     serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
-    const ttl = (serviceType === 'service-none' || serviceType === 'plugin-none') ? 300 : 3600 // 5 min for 404s, 1 hour for existing
-    await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl: ttl })
+    // Cache good results for 1 hour, negative results for 5 minutes
+    const expirationTtl = serviceType === 'service-none' || serviceType === 'plugin-none' ? 300 : 3600
+    await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl })
   } else {
     // Normal flow: check cache first
     const cachedServiceType = await env.ROUTER_CACHE.get(cacheKey)
@@ -83,8 +93,9 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     if (!serviceType) {
       // Cache miss: discover and cache services with coalescing
       serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
-      const ttl = (serviceType === 'service-none' || serviceType === 'plugin-none') ? 300 : 3600 // 5 min for 404s, 1 hour for existing
-      await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl: ttl })
+      // Cache good results for 1 hour, negative results for 5 minutes
+      const expirationTtl = serviceType === 'service-none' || serviceType === 'plugin-none' ? 300 : 3600
+      await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl })
     }
   }
 
@@ -95,7 +106,12 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 /**
  * Safe sitemap generation with timeout
  */
-async function safeSitemapGeneration(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<any[]> {
+async function safeSitemapGeneration(
+  kvNamespace: KVNamespace,
+  forceRefresh: boolean,
+  githubToken: string,
+  request?: any
+  ): Promise<any[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
   console.log('🚀 Starting sitemap generation with timeout protection')
@@ -105,7 +121,7 @@ async function safeSitemapGeneration(kvNamespace: KVNamespace, forceRefresh: boo
     setTimeout(() => reject(new Error('Sitemap generation timeout')), TIMEOUT_MS)
   })
 
-  const sitemapPromise = getCachedSitemapEntries(kvNamespace, forceRefresh, githubToken)
+  const sitemapPromise = getCachedSitemapEntries(kvNamespace, forceRefresh, githubToken, request)
 
   const entries = await Promise.race([sitemapPromise, timeoutPromise]) as any[]
 
@@ -116,9 +132,14 @@ async function safeSitemapGeneration(kvNamespace: KVNamespace, forceRefresh: boo
 /**
  * Handle XML sitemap requests
  */
-async function handleSitemapXml(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<Response> {
+async function handleSitemapXml(
+  kvNamespace: KVNamespace,
+  forceRefresh: boolean,
+  githubToken: string,
+  request?: any
+  ): Promise<Response> {
   try {
-    const entries = await safeSitemapGeneration(kvNamespace, forceRefresh, githubToken)
+    const entries = await safeSitemapGeneration(kvNamespace, forceRefresh, githubToken, request)
     const xmlContent = generateXmlSitemap(entries)
     return createXmlResponse(xmlContent)
   } catch (error) {
@@ -131,9 +152,14 @@ async function handleSitemapXml(kvNamespace: KVNamespace, forceRefresh: boolean,
 /**
  * Handle JSON sitemap requests
  */
-async function handleSitemapJson(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<Response> {
+async function handleSitemapJson(
+  kvNamespace: KVNamespace,
+  forceRefresh: boolean,
+  githubToken: string,
+  request?: any
+  ): Promise<Response> {
   try {
-    const entries = await safeSitemapGeneration(kvNamespace, forceRefresh, githubToken)
+    const entries = await safeSitemapGeneration(kvNamespace, forceRefresh, githubToken, request)
     const jsonContent = generateJsonSitemap(entries)
     return createJsonResponse(jsonContent)
   } catch (error) {
@@ -146,7 +172,12 @@ async function handleSitemapJson(kvNamespace: KVNamespace, forceRefresh: boolean
 /**
  * Safe plugin-map generation with timeout
  */
-async function safePluginMapGeneration(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<any[]> {
+async function safePluginMapGeneration(
+  kvNamespace: KVNamespace,
+  forceRefresh: boolean,
+  githubToken: string,
+  request?: any
+  ): Promise<any[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
   console.log('🚀 Starting plugin-map generation with timeout protection')
@@ -156,7 +187,7 @@ async function safePluginMapGeneration(kvNamespace: KVNamespace, forceRefresh: b
     setTimeout(() => reject(new Error('Plugin-map generation timeout')), TIMEOUT_MS)
   })
 
-  const pluginMapPromise = getCachedPluginMapEntries(kvNamespace, forceRefresh, githubToken)
+  const pluginMapPromise = getCachedPluginMapEntries(kvNamespace, forceRefresh, githubToken, request)
 
   const entries = await Promise.race([pluginMapPromise, timeoutPromise]) as any[]
 
@@ -167,9 +198,14 @@ async function safePluginMapGeneration(kvNamespace: KVNamespace, forceRefresh: b
 /**
  * Handle XML plugin-map requests
  */
-async function handlePluginMapXml(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<Response> {
+async function handlePluginMapXml(
+  kvNamespace: KVNamespace,
+  forceRefresh: boolean,
+  githubToken: string,
+  request?: any
+  ): Promise<Response> {
   try {
-    const entries = await safePluginMapGeneration(kvNamespace, forceRefresh, githubToken)
+    const entries = await safePluginMapGeneration(kvNamespace, forceRefresh, githubToken, request)
     const xmlContent = generateXmlPluginMap(entries)
     return createXmlPluginMapResponse(xmlContent)
   } catch (error) {
@@ -182,9 +218,14 @@ async function handlePluginMapXml(kvNamespace: KVNamespace, forceRefresh: boolea
 /**
  * Handle JSON plugin-map requests
  */
-async function handlePluginMapJson(kvNamespace: KVNamespace, forceRefresh: boolean, githubToken: string): Promise<Response> {
+async function handlePluginMapJson(
+  kvNamespace: KVNamespace,
+  forceRefresh: boolean,
+  githubToken: string,
+  request?: any
+  ): Promise<Response> {
   try {
-    const entries = await safePluginMapGeneration(kvNamespace, forceRefresh, githubToken)
+    const entries = await safePluginMapGeneration(kvNamespace, forceRefresh, githubToken, request)
     const jsonContent = generateJsonPluginMap(entries)
     return createJsonPluginMapResponse(jsonContent)
   } catch (error) {
