@@ -5,10 +5,10 @@ Welcome to the complete documentation for the UBQ.FI Router - a high-performance
 ## 📚 Documentation Structure
 
 ### Core Documentation
-- **[Architecture](architecture.md)** - System design, data flow, and technical decisions
-- **[API Reference](api-reference.md)** - Complete API documentation and usage examples
-- **[Deployment Guide](deployment.md)** - Step-by-step deployment instructions
-- **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
+- **[Architecture](additional/architecture.md)** - System design, data flow, and technical decisions
+- **[API Reference](additional/api-reference.md)** - Complete API documentation and usage examples
+- **[Deployment Guide](additional/deployment.md)** - Step-by-step deployment instructions
+- **[Troubleshooting](additional/troubleshooting.md)** - Common issues and solutions
 
 ### Quick Links
 - **[Getting Started](#getting-started)** - Quick setup guide
@@ -189,14 +189,14 @@ The router uses:
 ### By Role
 
 **Developers:**
-- Start with [Architecture](architecture.md) for system understanding
-- Use [API Reference](api-reference.md) for implementation details
-- Check [Troubleshooting](troubleshooting.md) for debugging
+- Start with [Architecture](additional/architecture.md) for system understanding
+- Use [API Reference](additional/api-reference.md) for implementation details
+- Check [Troubleshooting](additional/troubleshooting.md) for debugging
 
 **DevOps/SRE:**
-- Begin with [Deployment Guide](deployment.md) for setup
-- Monitor using [API Reference](api-reference.md#monitoring)
-- Handle issues with [Troubleshooting](troubleshooting.md)
+- Begin with [Deployment Guide](additional/deployment.md) for setup
+- Monitor using [API Reference](additional/api-reference.md#monitoring)
+- Handle issues with [Troubleshooting](additional/troubleshooting.md)
 
 **Product/PM:**
 - Review [Architecture](architecture.md#system-overview) for capabilities
@@ -236,7 +236,7 @@ The router uses:
 
 ### Self-Service
 1. **Search this documentation** - Most issues are covered
-2. **Check [Troubleshooting](troubleshooting.md)** - Common solutions
+2. **Check [Troubleshooting](additional/troubleshooting.md)** - Common solutions
 3. **Test manually** - Verify service URLs directly
 
 ### Escalation
@@ -246,4 +246,4 @@ The router uses:
 
 ---
 
-**Need immediate help?** Start with the [Troubleshooting Guide](troubleshooting.md) for quick solutions to common issues.
+**Need immediate help?** Start with the [Troubleshooting Guide](additional/troubleshooting.md) for quick solutions to common issues.

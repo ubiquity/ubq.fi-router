@@ -360,16 +360,16 @@ curl http://localhost:8787 -H "Host: pay.ubq.fi"
    ```bash
    # Production alias (should work)
    curl https://os-my-plugin.ubq.fi/manifest.json
-   
+
    # Explicit main (should work)
    curl https://os-my-plugin-main.ubq.fi/manifest.json
-   
+
    # Development full name (should work)
    curl https://os-my-plugin-development.ubq.fi/manifest.json
-   
+
    # Development alias (should work)
    curl https://os-my-plugin-dev.ubq.fi/manifest.json
-   
+
    # All should return same result or appropriate deployment
    ```
 
@@ -577,8 +577,8 @@ curl https://pay.ubq.fi -v
    - GitHub Issues
 
 3. **Internal Documentation:**
-   - [Architecture Documentation](architecture.md)
-   - [API Reference](api-reference.md)
-   - [Deployment Guide](deployment.md)
+   - [Architecture Documentation](additional/architecture.md)
+   - [API Reference](additional/api-reference.md)
+   - [Deployment Guide](additional/deployment.md)
 
 Remember to include relevant error messages, configuration details, and steps already attempted when seeking help.
