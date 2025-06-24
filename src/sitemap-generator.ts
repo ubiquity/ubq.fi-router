@@ -35,17 +35,17 @@ export interface JsonSitemap {
 function calculatePriority(subdomain: string, serviceType: ServiceType): number {
   // Root domain gets highest priority
   if (subdomain === '') return 1.0
-  
+
   // Core services get high priority
   const coreServices = ['pay', 'work', 'audit', 'onboard']
   if (coreServices.includes(subdomain)) return 0.9
-  
+
   // Regular services
   if (serviceType.startsWith('service-')) return 0.8
-  
+
   // Plugins get lower priority
   if (serviceType.startsWith('plugin-')) return 0.6
-  
+
   return 0.5
 }
 
@@ -83,15 +83,15 @@ function getDeploymentInfo(serviceType: ServiceType): { deno: boolean; pages: bo
 export function createSitemapEntry(
   subdomain: string,
   serviceType: ServiceType,
-  pluginManifest?: any,
-  githubRepo?: string
+  pluginManifest: any,
+  githubRepo: string | undefined,
+  lastmod: string
 ): SitemapEntry {
   const domain = subdomain === '' ? 'ubq.fi' : `${subdomain}.ubq.fi`
   const url = `https://${domain}/`
   const priority = calculatePriority(subdomain, serviceType)
   const changefreq = getChangeFrequency(serviceType)
   const deployment = getDeploymentInfo(serviceType)
-  const lastmod = new Date().toISOString()
 
   const entry: SitemapEntry = {
     url,
@@ -99,7 +99,7 @@ export function createSitemapEntry(
     priority,
     changefreq,
     lastmod,
-    deployment
+    deployment,
   }
 
   // Add metadata if available

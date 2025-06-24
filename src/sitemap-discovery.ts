@@ -14,7 +14,7 @@ export { discoverAllServices } from './core/discovery'
 /**
  * Discover all services and plugins for sitemap - CRASH on any failure
  */
-export async function discoverAllForSitemap(kvNamespace: any, githubToken?: string): Promise<SitemapEntry[]> {
+export async function discoverAllForSitemap(kvNamespace: any, githubToken: string | undefined, generationTimestamp: string): Promise<SitemapEntry[]> {
   const token = githubToken || process.env.GITHUB_TOKEN
   if (!token) {
     throw new Error('GITHUB_TOKEN is required for sitemap generation (provide as parameter or environment variable)')
@@ -31,14 +31,14 @@ export async function discoverAllForSitemap(kvNamespace: any, githubToken?: stri
   // Convert services to sitemap entries
   for (const [subdomain, serviceType] of serviceMap) {
     const githubRepo = subdomain ? `ubiquity/${subdomain}.ubq.fi` : 'ubiquity/ubq.fi'
-    entries.push(createSitemapEntry(subdomain, serviceType, undefined, githubRepo))
+    entries.push(createSitemapEntry(subdomain, serviceType, undefined, githubRepo, generationTimestamp))
   }
 
   // Convert plugins to sitemap entries
   for (const [pluginName, { serviceType, manifest }] of pluginMap) {
     const subdomain = `os-${pluginName}`
     const githubRepo = `ubiquity-os-marketplace/${pluginName}`
-    entries.push(createSitemapEntry(subdomain, serviceType, manifest, githubRepo))
+    entries.push(createSitemapEntry(subdomain, serviceType, manifest, githubRepo, generationTimestamp))
   }
 
   return entries
@@ -65,7 +65,8 @@ export async function getCachedSitemapEntries(
   }
 
   // Generate fresh entries - CRASH if fails
-  const entries = await discoverAllForSitemap(kvNamespace, githubToken)
+  const generationTimestamp = new Date().toISOString()
+  const entries = await discoverAllForSitemap(kvNamespace, githubToken, generationTimestamp)
 
   // Cache the results - CRASH if fails
   await putToCache(kvNamespace, CACHE_KEY, entries, CACHE_CONFIGS.SITEMAP, request)

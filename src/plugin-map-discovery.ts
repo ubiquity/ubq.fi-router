@@ -11,7 +11,7 @@ import { createPluginMapEntry } from './plugin-map-generator'
 /**
  * Discover all plugins for plugin-map - CRASH on any failure
  */
-export async function discoverAllForPluginMap(kvNamespace: any, githubToken?: string): Promise<PluginMapEntry[]> {
+export async function discoverAllForPluginMap(kvNamespace: any, githubToken: string | undefined, generationTimestamp: string): Promise<PluginMapEntry[]> {
   const token = githubToken || process.env.GITHUB_TOKEN
   if (!token) {
     throw new Error('GITHUB_TOKEN is required for plugin-map generation (provide as parameter or environment variable)')
@@ -37,7 +37,7 @@ export async function discoverAllForPluginMap(kvNamespace: any, githubToken?: st
       developmentAvailable
     }
 
-    entries.push(createPluginMapEntry(discovery))
+    entries.push(createPluginMapEntry(discovery, generationTimestamp))
   }
 
   return entries
@@ -64,7 +64,8 @@ export async function getCachedPluginMapEntries(
   }
 
   // Generate fresh entries - CRASH if fails
-  const entries = await discoverAllForPluginMap(kvNamespace, githubToken)
+  const generationTimestamp = new Date().toISOString()
+  const entries = await discoverAllForPluginMap(kvNamespace, githubToken, generationTimestamp)
 
   // Cache the results - CRASH if fails
   await putToCache(kvNamespace, CACHE_KEY, entries, CACHE_CONFIGS.PLUGIN_MAP, request)

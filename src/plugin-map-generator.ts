@@ -64,13 +64,12 @@ function getBestManifest(mainManifest?: PluginManifest, developmentManifest?: Pl
 /**
  * Create plugin-map entry from discovery result
  */
-export function createPluginMapEntry(discovery: PluginDiscoveryResult): PluginMapEntry {
+export function createPluginMapEntry(discovery: PluginDiscoveryResult, lastmod: string): PluginMapEntry {
   const { pluginName, serviceType, mainManifest, developmentManifest, mainAvailable, developmentAvailable } = discovery
 
   const url = `https://os-${pluginName}.ubq.fi/`
   const priority = calculatePluginPriority(serviceType, mainAvailable, developmentAvailable)
   const changefreq = getPluginChangeFrequency(serviceType)
-  const lastmod = new Date().toISOString()
 
   // Get the best manifest for display information
   const bestManifest = getBestManifest(mainManifest, developmentManifest)
@@ -105,7 +104,7 @@ export function createPluginMapEntry(discovery: PluginDiscoveryResult): PluginMa
     priority,
     changefreq,
     lastmod,
-    ...richMetadata
+    ...richMetadata,
   }
 
   return entry
@@ -144,17 +143,17 @@ ${urlsetClose}`
 /**
  * Generate JSON plugin-map from entries
  */
-export function generateJsonPluginMap(entries: PluginMapEntry[]): JsonPluginMap {
+export function generateJsonPluginMap(entries: PluginMapEntry[], generationTimestamp: string): JsonPluginMap {
   // Filter out non-existent plugins
-  const validEntries = entries.filter(entry => entry.serviceType !== 'plugin-none')
+  const validEntries = entries.filter(entry => entry.serviceType !== 'plugin-none');
 
   return {
     version: '1.0',
-    generated: new Date().toISOString(),
+    generated: generationTimestamp,
     generator: 'ubq.fi-router',
     totalPlugins: validEntries.length,
-    plugins: validEntries
-  }
+    plugins: validEntries,
+  };
 }
 
 /**
