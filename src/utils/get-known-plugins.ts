@@ -1,8 +1,10 @@
 /**
  * Fetch known plugin names from GitHub API with KV caching
+ * Returns both plugin names and metadata for change detection
  */
 export async function getKnownPlugins(kvNamespace: any, githubToken: string): Promise<string[]> {
   const CACHE_KEY = 'github:plugin-names'
+  const METADATA_KEY = 'github:plugin-metadata'
   const CACHE_TTL = 24 * 60 * 60 // 24 hours
 
   try {
@@ -47,15 +49,30 @@ export async function getKnownPlugins(kvNamespace: any, githubToken: string): Pr
       throw new Error(errorMessage)
     }
 
-    const repos = await response.json() as Array<{ name: string }>
-    const pluginNames = repos.map((repo) => repo.name).filter((name: string) => name)
+    const repos = await response.json() as Array<{
+      name: string
+      updated_at: string
+      pushed_at: string
+    }>
+
+    // Filter and collect plugin data with metadata
+    const pluginData = repos
+      .filter((repo) => repo.name)
+      .map(repo => ({
+        name: repo.name,
+        updated_at: repo.updated_at,
+        pushed_at: repo.pushed_at
+      }))
+
+    const pluginNames = pluginData.map(item => item.name)
 
     console.log(`✅ Fetched ${pluginNames.length} plugin names from GitHub`)
 
-    // Cache the results
+    // Cache both the plugin names and metadata for change detection
     try {
       await kvNamespace.put(CACHE_KEY, JSON.stringify(pluginNames), { expirationTtl: CACHE_TTL })
-      console.log('💾 Cached plugin names')
+      await kvNamespace.put(METADATA_KEY, JSON.stringify(pluginData), { expirationTtl: CACHE_TTL })
+      console.log('💾 Cached plugin names and metadata')
     } catch (error) {
       console.warn('Failed to cache plugin names:', error)
     }
