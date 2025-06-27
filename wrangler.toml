@@ -15,6 +15,9 @@ command = "bun run build"
 enabled = true
 
 # Environment variables are handled via secrets for security
+# Use 'wrangler secret put GITHUB_TOKEN' to set the GitHub token securely
+# [vars]
+# Non-sensitive environment variables only
 
 # Zone-based routing for *.ubq.fi
 [[routes]]

@@ -11,7 +11,6 @@ import { getCachedSitemapEntries } from './sitemap-discovery'
 import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
 import { getCachedPluginMapEntries } from './plugin-map-discovery'
 import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
-
 interface Env {
   ROUTER_CACHE: KVNamespace
   GITHUB_TOKEN: string
@@ -24,6 +23,17 @@ export default {
 }
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
+  // DIAGNOSTIC LOG: Test if ANY logs appear in wrangler tail
+  console.log(JSON.stringify({
+    level: "DEBUG",
+    message: "🔍 DIAGNOSTIC: Worker fetch handler started",
+    timestamp: new Date().toISOString(),
+    url: request.url,
+    method: request.method,
+    userAgent: request.headers.get('User-Agent'),
+    cfRay: request.headers.get('CF-Ray')
+  }));
+
   // Validate required environment variables
   if (!env.GITHUB_TOKEN) {
     throw new Error('GITHUB_TOKEN environment variable is required but not found')
@@ -226,7 +236,7 @@ async function handlePluginMapJson(
   ): Promise<Response> {
   try {
     const entries = await safePluginMapGeneration(kvNamespace, forceRefresh, githubToken, request)
-    const jsonContent = generateJsonPluginMap(entries)
+    const jsonContent = generateJsonPluginMap(entries, new Date().toISOString())
     return createJsonPluginMapResponse(jsonContent)
   } catch (error) {
     console.error('Critical error in JSON plugin-map handler:', error)
