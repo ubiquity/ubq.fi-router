@@ -1,9 +1,11 @@
 /**
  * Fetch known service subdomains from GitHub API with KV caching
  * Looks for repos in ubiquity org that end with .ubq.fi
+ * Returns both service names and metadata for change detection
  */
 export async function getKnownServices(kvNamespace: any, githubToken: string): Promise<string[]> {
   const CACHE_KEY = 'github:service-names'
+  const METADATA_KEY = 'github:service-metadata'
   const CACHE_TTL = 24 * 60 * 60 // 24 hours
 
   try {
@@ -48,26 +50,34 @@ export async function getKnownServices(kvNamespace: any, githubToken: string): P
       throw new Error(errorMessage)
     }
 
-    const repos = await response.json() as Array<{ name: string }>
+    const repos = await response.json() as Array<{
+      name: string
+      updated_at: string
+      pushed_at: string
+    }>
 
     // Filter for repos that end with .ubq.fi (service domains)
-    const serviceRepos = repos
-      .map((repo) => repo.name)
-      .filter((name: string) => name.endsWith('.ubq.fi'))
+    const serviceRepos = repos.filter((repo) => repo.name.endsWith('.ubq.fi'))
 
-    // Extract subdomain from service repo names
-    // e.g., "pay.ubq.fi" -> "pay", "ubq.fi" -> ""
-    const serviceSubdomains = serviceRepos.map(name => {
-      if (name === 'ubq.fi') return ''
-      return name.replace('.ubq.fi', '')
+    // Extract subdomain from service repo names and collect metadata
+    const serviceData = serviceRepos.map(repo => {
+      const subdomain = repo.name === 'ubq.fi' ? '' : repo.name.replace('.ubq.fi', '')
+      return {
+        subdomain,
+        updated_at: repo.updated_at,
+        pushed_at: repo.pushed_at
+      }
     })
+
+    const serviceSubdomains = serviceData.map(item => item.subdomain)
 
     console.log(`✅ Fetched ${serviceSubdomains.length} service names from GitHub`)
 
-    // Cache the results
+    // Cache both the service names and metadata for change detection
     try {
       await kvNamespace.put(CACHE_KEY, JSON.stringify(serviceSubdomains), { expirationTtl: CACHE_TTL })
-      console.log('💾 Cached service names')
+      await kvNamespace.put(METADATA_KEY, JSON.stringify(serviceData), { expirationTtl: CACHE_TTL })
+      console.log('💾 Cached service names and metadata')
     } catch (error) {
       console.warn('Failed to cache service names:', error)
     }

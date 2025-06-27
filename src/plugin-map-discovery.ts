@@ -1,5 +1,5 @@
 /**
- * Simplified plugin-map discovery using core modules
+ * Optimized plugin-map discovery with aggressive change detection
  * No defensive coding - crashes on any failure
  */
 
@@ -7,6 +7,7 @@ import type { PluginMapEntry } from './types'
 import { discoverAllPlugins } from './core/discovery'
 import { getFromCache, putToCache, CACHE_CONFIGS } from './core/cache'
 import { createPluginMapEntry } from './plugin-map-generator'
+import { shouldRegeneratePluginMap, recordPluginMapGeneration } from './utils/change-detection'
 
 /**
  * Discover all plugins for plugin-map - CRASH on any failure
@@ -44,7 +45,7 @@ export async function discoverAllForPluginMap(kvNamespace: any, githubToken: str
 }
 
 /**
- * Get cached plugin-map entries or generate fresh - CRASH on any failure
+ * Get cached plugin-map entries with smart change detection - CRASH on any failure
  */
 export async function getCachedPluginMapEntries(
   kvNamespace: any,
@@ -56,19 +57,29 @@ export async function getCachedPluginMapEntries(
   ): Promise<PluginMapEntry[]> {
   const CACHE_KEY = 'entries'
 
-  if (!forceRefresh) {
+  // Check if regeneration is needed based on repository changes
+  const needsRegeneration = await shouldRegeneratePluginMap(kvNamespace, forceRefresh)
+
+  if (!needsRegeneration) {
+    // Try to get from cache if no changes detected
     const cached = await getFromCache<PluginMapEntry[]>(kvNamespace, CACHE_KEY, CACHE_CONFIGS.PLUGIN_MAP)
     if (cached) {
+      console.log(`📦 Using cached plugin-map entries (${cached.length} entries) - no repository changes detected.`)
       return cached
     }
   }
 
   // Generate fresh entries - CRASH if fails
+  console.log(`🔄 Generating fresh plugin-map entries...`)
   const generationTimestamp = new Date().toISOString()
   const entries = await discoverAllForPluginMap(kvNamespace, githubToken, generationTimestamp)
 
   // Cache the results - CRASH if fails
   await putToCache(kvNamespace, CACHE_KEY, entries, CACHE_CONFIGS.PLUGIN_MAP, request)
 
+  // Record this generation to track future changes
+  await recordPluginMapGeneration(kvNamespace)
+
+  console.log(`✅ Generated and cached ${entries.length} plugin-map entries.`)
   return entries
 }
