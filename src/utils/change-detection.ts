@@ -1,3 +1,5 @@
+import { rateLimitedBulkKVWrite } from './rate-limited-kv-write'
+
 /**
  * Change detection utilities for GitHub repositories
  * Prevents unnecessary sitemap/plugin-map regenerations
@@ -72,10 +74,10 @@ export async function recordGeneration(
     const currentMetadata = await kvNamespace.get(metadataKey, { type: 'json' })
 
     // Store generation timestamp and metadata snapshot
-    await Promise.all([
-      kvNamespace.put(lastGenKey, timestamp, { expirationTtl: 7 * 24 * 60 * 60 }), // 7 days
-      kvNamespace.put(lastMetadataKey, JSON.stringify(currentMetadata), { expirationTtl: 7 * 24 * 60 * 60 }) // 7 days
-    ])
+    await rateLimitedBulkKVWrite(kvNamespace, [
+      { key: lastGenKey, value: timestamp, options: { expirationTtl: 7 * 24 * 60 * 60 } }, // 7 days
+      { key: lastMetadataKey, value: JSON.stringify(currentMetadata), options: { expirationTtl: 7 * 24 * 60 * 60 } } // 7 days
+    ], 'change-detection')
 
     console.log(`📝 Recorded generation for '${cacheKeyPrefix}' at ${timestamp}`)
   } catch (error) {

@@ -11,6 +11,8 @@ import { getCachedSitemapEntries } from './sitemap-discovery'
 import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
 import { getCachedPluginMapEntries } from './plugin-map-discovery'
 import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
+import { rateLimitedKVWrite } from './utils/rate-limited-kv-write'
+
 interface Env {
   ROUTER_CACHE: KVNamespace
   GITHUB_TOKEN: string
@@ -94,7 +96,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
     // Cache good results for 1 hour, negative results for 5 minutes
     const expirationTtl = serviceType === 'service-none' || serviceType === 'plugin-none' ? 300 : 3600
-    await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl })
+    await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-refresh', { expirationTtl })
   } else {
     // Normal flow: check cache first
     const cachedServiceType = await env.ROUTER_CACHE.get(cacheKey)
@@ -105,7 +107,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
       // Cache good results for 1 hour, negative results for 5 minutes
       const expirationTtl = serviceType === 'service-none' || serviceType === 'plugin-none' ? 300 : 3600
-      await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl })
+      await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-cache-miss', { expirationTtl })
     }
   }
 
