@@ -3,6 +3,8 @@
  * No defensive coding, explicit failures only
  */
 
+import { trackKVWrite } from '../analytics/write-tracker'
+
 export interface CacheConfig {
   ttlHours: number
   prefix: string
@@ -24,11 +26,11 @@ function generateHash(value: any): string {
  */
 function cleanMemoryCache(): void {
   const now = Date.now()
-  for (const [key, entry] of memoryCache.entries()) {
+  Array.from(memoryCache.entries()).forEach(([key, entry]) => {
     if (entry.expires < now) {
       memoryCache.delete(key)
     }
-  }
+  })
 }
 
 /**
@@ -159,6 +161,11 @@ export async function putToCache<T>(
       expirationTtl: ttlSeconds
     })
 
+    // Track the KV write for analytics
+    await trackKVWrite(kvNamespace, config.prefix).catch(error => {
+      console.warn(`Analytics tracking failed for ${config.prefix}:`, error)
+    })
+
     // Update memory cache after successful KV write
     memoryCache.set(fullKey, {
       value: value,
@@ -218,12 +225,12 @@ export async function clearAllCache(
     // Clear from memory cache first
     const memoryPrefix = `${config.prefix}:`
     let memoryClearedCount = 0
-    for (const [key] of memoryCache.entries()) {
+    Array.from(memoryCache.entries()).forEach(([key]) => {
       if (key.startsWith(memoryPrefix)) {
         memoryCache.delete(key)
         memoryClearedCount++
       }
-    }
+    })
 
     // Clear from KV
     const list = await kvNamespace.list({ prefix: memoryPrefix })

@@ -2,6 +2,8 @@
  * Fetch known plugin names from GitHub API with KV caching
  * Returns both plugin names and metadata for change detection
  */
+import { rateLimitedBulkKVWrite } from './rate-limited-kv-write'
+
 export async function getKnownPlugins(kvNamespace: any, githubToken: string): Promise<string[]> {
   const CACHE_KEY = 'github:plugin-names'
   const METADATA_KEY = 'github:plugin-metadata'
@@ -68,10 +70,16 @@ export async function getKnownPlugins(kvNamespace: any, githubToken: string): Pr
 
     console.log(`✅ Fetched ${pluginNames.length} plugin names from GitHub`)
 
-    // Cache both the plugin names and metadata for change detection
+    // Cache both the plugin names and metadata for change detection using rate-limited bulk write
     try {
-      await kvNamespace.put(CACHE_KEY, JSON.stringify(pluginNames), { expirationTtl: CACHE_TTL })
-      await kvNamespace.put(METADATA_KEY, JSON.stringify(pluginData), { expirationTtl: CACHE_TTL })
+      await rateLimitedBulkKVWrite(
+        kvNamespace,
+        [
+          { key: CACHE_KEY, value: JSON.stringify(pluginNames), options: { expirationTtl: CACHE_TTL } },
+          { key: METADATA_KEY, value: JSON.stringify(pluginData), options: { expirationTtl: CACHE_TTL } }
+        ],
+        'plugin-discovery'
+      )
       console.log('💾 Cached plugin names and metadata')
     } catch (error) {
       console.warn('Failed to cache plugin names:', error)

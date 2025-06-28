@@ -14,7 +14,11 @@
     "cache:clear-pay": "curl -H 'X-Cache-Control: clear' https://pay.ubq.fi",
     "cache:refresh-pay": "curl -H 'X-Cache-Control: refresh' https://pay.ubq.fi",
     "cache:test-pay": "curl -I https://pay.ubq.fi",
-    "cache:status": "echo 'Testing cache status for key domains:' && curl -I https://pay.ubq.fi"
+    "cache:status": "echo 'Testing cache status for key domains:' && curl -I https://pay.ubq.fi",
+    "analytics": "echo '📊 Analytics Tools:' && echo '  bun run analytics:kv     - Current KV analytics from production data' && echo '  bun run analytics:logs   - Historical log analysis (for missing analytics data)' && echo '  bun run analytics:help   - Show help for all tools'",
+    "analytics:kv": "bun scripts/kv-analytics.ts",
+    "analytics:logs": "bun scripts/analyze-kv-logs.ts",
+    "analytics:help": "bun scripts/kv-analytics.ts --help"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20231218.0",

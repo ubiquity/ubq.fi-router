@@ -1,3 +1,5 @@
+import { rateLimitedBulkKVWrite } from './rate-limited-kv-write'
+
 /**
  * Fetch known service subdomains from GitHub API with KV caching
  * Looks for repos in ubiquity org that end with .ubq.fi
@@ -75,8 +77,10 @@ export async function getKnownServices(kvNamespace: any, githubToken: string): P
 
     // Cache both the service names and metadata for change detection
     try {
-      await kvNamespace.put(CACHE_KEY, JSON.stringify(serviceSubdomains), { expirationTtl: CACHE_TTL })
-      await kvNamespace.put(METADATA_KEY, JSON.stringify(serviceData), { expirationTtl: CACHE_TTL })
+      await rateLimitedBulkKVWrite(kvNamespace, [
+        { key: CACHE_KEY, value: JSON.stringify(serviceSubdomains), options: { expirationTtl: CACHE_TTL } },
+        { key: METADATA_KEY, value: JSON.stringify(serviceData), options: { expirationTtl: CACHE_TTL } }
+      ], 'service-discovery')
       console.log('💾 Cached service names and metadata')
     } catch (error) {
       console.warn('Failed to cache service names:', error)

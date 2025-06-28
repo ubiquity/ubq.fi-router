@@ -11,10 +11,14 @@ preview_id = "01f073a865f742088b1d8c7dd348442b"
 [build]
 command = "bun run build"
 
-[observability.logs]
+[observability]
 enabled = true
+head_sampling_rate = 1
 
 # Environment variables are handled via secrets for security
+# Use 'wrangler secret put GITHUB_TOKEN' to set the GitHub token securely
+# [vars]
+# Non-sensitive environment variables only
 
 # Zone-based routing for *.ubq.fi
 [[routes]]

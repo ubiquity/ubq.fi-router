@@ -11,6 +11,7 @@ import { getCachedSitemapEntries } from './sitemap-discovery'
 import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
 import { getCachedPluginMapEntries } from './plugin-map-discovery'
 import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
+import { rateLimitedKVWrite } from './utils/rate-limited-kv-write'
 
 interface Env {
   ROUTER_CACHE: KVNamespace
@@ -24,6 +25,17 @@ export default {
 }
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
+  // DIAGNOSTIC LOG: Test if ANY logs appear in wrangler tail
+  console.log(JSON.stringify({
+    level: "DEBUG",
+    message: "🔍 DIAGNOSTIC: Worker fetch handler started",
+    timestamp: new Date().toISOString(),
+    url: request.url,
+    method: request.method,
+    userAgent: request.headers.get('User-Agent'),
+    cfRay: request.headers.get('CF-Ray')
+  }));
+
   // Validate required environment variables
   if (!env.GITHUB_TOKEN) {
     throw new Error('GITHUB_TOKEN environment variable is required but not found')
@@ -84,7 +96,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
     // Cache good results for 1 hour, negative results for 5 minutes
     const expirationTtl = serviceType === 'service-none' || serviceType === 'plugin-none' ? 300 : 3600
-    await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl })
+    await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-refresh', { expirationTtl })
   } else {
     // Normal flow: check cache first
     const cachedServiceType = await env.ROUTER_CACHE.get(cacheKey)
@@ -95,7 +107,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
       // Cache good results for 1 hour, negative results for 5 minutes
       const expirationTtl = serviceType === 'service-none' || serviceType === 'plugin-none' ? 300 : 3600
-      await env.ROUTER_CACHE.put(cacheKey, serviceType, { expirationTtl })
+      await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-cache-miss', { expirationTtl })
     }
   }
 
@@ -226,7 +238,7 @@ async function handlePluginMapJson(
   ): Promise<Response> {
   try {
     const entries = await safePluginMapGeneration(kvNamespace, forceRefresh, githubToken, request)
-    const jsonContent = generateJsonPluginMap(entries)
+    const jsonContent = generateJsonPluginMap(entries, new Date().toISOString())
     return createJsonPluginMapResponse(jsonContent)
   } catch (error) {
     console.error('Critical error in JSON plugin-map handler:', error)
