@@ -45,6 +45,11 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
   const cacheControl = request.headers.get('X-Cache-Control') as CacheControlValue
 
+  // Handle RPC requests early to avoid preflight issues
+  if (url.pathname.startsWith('/rpc/')) {
+    return await handleRpcRequest(request, url)
+  }
+
   // Handle sitemap endpoints
   if (url.pathname === '/sitemap.xml') {
     return await handleSitemapXml(env.ROUTER_CACHE, cacheControl === 'refresh', env.GITHUB_TOKEN, request)
@@ -114,6 +119,95 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   // Route based on discovered/cached service availability
   return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE, env.GITHUB_TOKEN)
+}
+
+/**
+ * Handle RPC requests by proxying to rpc.ubq.fi
+ * This eliminates CORS preflight requests by making them same-origin
+ */
+async function handleRpcRequest(request: Request, url: URL): Promise<Response> {
+  console.log(JSON.stringify({
+    level: "INFO",
+    message: "🔗 Handling RPC request",
+    url: request.url,
+    method: request.method,
+    path: url.pathname
+  }));
+
+  // Extract chain ID from path /rpc/{chain_id}
+  const pathParts = url.pathname.split('/')
+  if (pathParts.length < 3 || pathParts[1] !== 'rpc') {
+    return new Response('Invalid RPC path format. Use /rpc/{chain_id}', { status: 400 })
+  }
+
+  const chainId = pathParts[2]
+
+  // Validate chain ID is numeric
+  if (!chainId || !/^\d+$/.test(chainId)) {
+    return new Response('Invalid chain ID. Must be numeric.', { status: 400 })
+  }
+
+  // Handle OPTIONS preflight requests
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+        'Access-Control-Max-Age': '86400', // 24 hours
+      }
+    })
+  }
+
+  // Construct target RPC URL
+  const targetUrl = `https://rpc.ubq.fi/${chainId}${url.search}`
+
+  try {
+    // Create headers for the proxied request, excluding host-specific headers
+    const proxyHeaders = new Headers()
+    for (const [key, value] of request.headers.entries()) {
+      // Skip host-specific headers that could cause issues
+      if (!['host', 'origin', 'referer'].includes(key.toLowerCase())) {
+        proxyHeaders.set(key, value)
+      }
+    }
+
+    // Create the proxied request
+    const proxyRequest = new Request(targetUrl, {
+      method: request.method,
+      headers: proxyHeaders,
+      body: request.body,
+      redirect: 'manual'
+    })
+
+    // Make the request to the actual RPC endpoint
+    const response = await fetch(proxyRequest)
+
+    // Create response headers with CORS
+    const responseHeaders = new Headers(response.headers)
+    responseHeaders.set('Access-Control-Allow-Origin', '*')
+    responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+
+    // Return the response with streaming body
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders
+    })
+
+  } catch (error) {
+    console.error('RPC proxy error:', error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return new Response(`RPC proxy error: ${errorMessage}`, {
+      status: 502,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'text/plain'
+      }
+    })
+  }
 }
 
 /**
