@@ -4,6 +4,7 @@
 
 import type { DailyCounter, HourlyBucket, CurrentSession } from './types'
 import { getCurrentUtcDate, getCurrentUtcHour } from './projections'
+import { kvGetWithFallback, kvPutWithFallback } from '../utils/kv-fallback-wrapper'
 
 // In-memory cache for analytics to reduce KV reads
 const analyticsCache = new Map<string, { value: any; expires: number }>()
@@ -22,7 +23,7 @@ function cleanAnalyticsCache(): void {
 }
 
 /**
- * Get from analytics cache or KV
+ * Get from analytics cache or KV with fallback
  */
 async function getAnalyticsData<T>(
   kvNamespace: any,
@@ -35,7 +36,7 @@ async function getAnalyticsData<T>(
   }
 
   try {
-    const data = await kvNamespace.get(key, { type: 'json' })
+    const data = await kvGetWithFallback(kvNamespace, key, { type: 'json' })
     if (data !== null) {
       // Cache for faster access
       analyticsCache.set(key, {
@@ -52,7 +53,7 @@ async function getAnalyticsData<T>(
 }
 
 /**
- * Put analytics data with caching
+ * Put analytics data with fallback support
  */
 async function putAnalyticsData(
   kvNamespace: any,
@@ -60,7 +61,7 @@ async function putAnalyticsData(
   value: any
 ): Promise<void> {
   try {
-    await kvNamespace.put(key, JSON.stringify(value))
+    await kvPutWithFallback(kvNamespace, key, JSON.stringify(value))
 
     // Update cache
     analyticsCache.set(key, {
@@ -68,7 +69,8 @@ async function putAnalyticsData(
       expires: Date.now() + ANALYTICS_CACHE_TTL_MS
     })
   } catch (error) {
-    throw new Error(`Analytics write failed for key ${key}: ${(error as Error).message}`)
+    // Analytics writes are non-critical - log but don't throw
+    console.warn(`Analytics write failed for key ${key}:`, error)
   }
 }
 

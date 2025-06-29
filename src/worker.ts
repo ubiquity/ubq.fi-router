@@ -12,6 +12,7 @@ import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonR
 import { getCachedPluginMapEntries } from './plugin-map-discovery'
 import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
 import { rateLimitedKVWrite } from './utils/rate-limited-kv-write'
+import { kvGetWithFallback, kvDeleteWithFallback, kvListWithFallback } from './utils/kv-fallback-wrapper'
 
 interface Env {
   ROUTER_CACHE: KVNamespace
@@ -68,14 +69,14 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   // Handle cache control headers
   if (cacheControl === 'clear') {
-    await env.ROUTER_CACHE.delete(cacheKey)
+    await kvDeleteWithFallback(env.ROUTER_CACHE, cacheKey)
     return new Response('Cache cleared', { status: 200 })
   }
 
   if (cacheControl === 'clear-all') {
     // Clear all route cache entries
-    const { keys } = await env.ROUTER_CACHE.list({ prefix: 'route:' })
-    const deletePromises = keys.map(key => env.ROUTER_CACHE.delete(key.name))
+    const { keys } = await kvListWithFallback(env.ROUTER_CACHE, { prefix: 'route:' })
+    const deletePromises = keys.map(key => kvDeleteWithFallback(env.ROUTER_CACHE, key.name))
     await Promise.all(deletePromises)
     return new Response(`Cleared ${keys.length} cache entries`, { status: 200 })
   }
@@ -99,7 +100,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-refresh', { expirationTtl })
   } else {
     // Normal flow: check cache first
-    const cachedServiceType = await env.ROUTER_CACHE.get(cacheKey)
+    const cachedServiceType = await kvGetWithFallback(env.ROUTER_CACHE, cacheKey)
     serviceType = cachedServiceType as ServiceType
 
     if (!serviceType) {

@@ -2,7 +2,8 @@
  * Fetch known plugin names from GitHub API with KV caching
  * Returns both plugin names and metadata for change detection
  */
-import { rateLimitedBulkKVWrite } from './rate-limited-kv-write'
+import { rateLimitedKVWrite } from './rate-limited-kv-write'
+import { kvGetWithFallback } from './kv-fallback-wrapper'
 
 export async function getKnownPlugins(kvNamespace: any, githubToken: string): Promise<string[]> {
   const CACHE_KEY = 'github:plugin-names'
@@ -11,7 +12,7 @@ export async function getKnownPlugins(kvNamespace: any, githubToken: string): Pr
 
   try {
     // Try to get from cache first
-    const cached = await kvNamespace.get(CACHE_KEY, { type: 'json' })
+    const cached = await kvGetWithFallback(kvNamespace, CACHE_KEY, { type: 'json' })
     if (cached && Array.isArray(cached)) {
       console.log(`📦 Using cached plugin names (${cached.length} plugins)`)
       return cached
@@ -72,14 +73,8 @@ export async function getKnownPlugins(kvNamespace: any, githubToken: string): Pr
 
     // Cache both the plugin names and metadata for change detection using rate-limited bulk write
     try {
-      await rateLimitedBulkKVWrite(
-        kvNamespace,
-        [
-          { key: CACHE_KEY, value: JSON.stringify(pluginNames), options: { expirationTtl: CACHE_TTL } },
-          { key: METADATA_KEY, value: JSON.stringify(pluginData), options: { expirationTtl: CACHE_TTL } }
-        ],
-        'plugin-discovery'
-      )
+      await rateLimitedKVWrite(kvNamespace, CACHE_KEY, JSON.stringify(pluginNames), 'plugin-discovery', { expirationTtl: CACHE_TTL })
+      await rateLimitedKVWrite(kvNamespace, METADATA_KEY, JSON.stringify(pluginData), 'plugin-discovery', { expirationTtl: CACHE_TTL })
       console.log('💾 Cached plugin names and metadata')
     } catch (error) {
       console.warn('Failed to cache plugin names:', error)

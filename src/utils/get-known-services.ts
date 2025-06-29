@@ -1,4 +1,5 @@
-import { rateLimitedBulkKVWrite } from './rate-limited-kv-write'
+import { rateLimitedKVWrite } from './rate-limited-kv-write'
+import { kvGetWithFallback } from './kv-fallback-wrapper'
 
 /**
  * Fetch known service subdomains from GitHub API with KV caching
@@ -12,7 +13,7 @@ export async function getKnownServices(kvNamespace: any, githubToken: string): P
 
   try {
     // Try to get from cache first
-    const cached = await kvNamespace.get(CACHE_KEY, { type: 'json' })
+    const cached = await kvGetWithFallback(kvNamespace, CACHE_KEY, { type: 'json' })
     if (cached && Array.isArray(cached)) {
       console.log(`📦 Using cached service names (${cached.length} services)`)
       return cached
@@ -77,10 +78,8 @@ export async function getKnownServices(kvNamespace: any, githubToken: string): P
 
     // Cache both the service names and metadata for change detection
     try {
-      await rateLimitedBulkKVWrite(kvNamespace, [
-        { key: CACHE_KEY, value: JSON.stringify(serviceSubdomains), options: { expirationTtl: CACHE_TTL } },
-        { key: METADATA_KEY, value: JSON.stringify(serviceData), options: { expirationTtl: CACHE_TTL } }
-      ], 'service-discovery')
+      await rateLimitedKVWrite(kvNamespace, CACHE_KEY, JSON.stringify(serviceSubdomains), 'service-discovery', { expirationTtl: CACHE_TTL })
+      await rateLimitedKVWrite(kvNamespace, METADATA_KEY, JSON.stringify(serviceData), 'service-discovery', { expirationTtl: CACHE_TTL })
       console.log('💾 Cached service names and metadata')
     } catch (error) {
       console.warn('Failed to cache service names:', error)

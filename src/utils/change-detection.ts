@@ -1,4 +1,5 @@
-import { rateLimitedBulkKVWrite } from './rate-limited-kv-write'
+import { rateLimitedKVWrite } from './rate-limited-kv-write'
+import { kvGetWithFallback } from './kv-fallback-wrapper'
 
 /**
  * Change detection utilities for GitHub repositories
@@ -16,7 +17,7 @@ export async function hasRepositoryDataChanged(
   try {
     // Get the last generation timestamp
     const lastGenKey = `${cacheKeyPrefix}:last-generation`
-    const lastGeneration = await kvNamespace.get(lastGenKey)
+    const lastGeneration = await kvGetWithFallback(kvNamespace, lastGenKey)
 
     if (!lastGeneration) {
       console.log(`🔄 No previous generation found for '${cacheKeyPrefix}', forcing regeneration.`)
@@ -24,7 +25,7 @@ export async function hasRepositoryDataChanged(
     }
 
     // Get current metadata
-    const currentMetadata = await kvNamespace.get(metadataKey, { type: 'json' })
+    const currentMetadata = await kvGetWithFallback(kvNamespace, metadataKey, { type: 'json' })
     if (!currentMetadata) {
       console.log(`🔄 No current metadata found for '${metadataKey}', forcing regeneration.`)
       return true // Force regeneration if no metadata
@@ -32,7 +33,7 @@ export async function hasRepositoryDataChanged(
 
     // Get cached metadata from last generation
     const lastMetadataKey = `${cacheKeyPrefix}:last-metadata`
-    const lastMetadata = await kvNamespace.get(lastMetadataKey, { type: 'json' })
+    const lastMetadata = await kvGetWithFallback(kvNamespace, lastMetadataKey, { type: 'json' })
 
     if (!lastMetadata) {
       console.log(`🔄 No previous metadata found for '${cacheKeyPrefix}', forcing regeneration.`)
@@ -71,13 +72,11 @@ export async function recordGeneration(
     const lastMetadataKey = `${cacheKeyPrefix}:last-metadata`
 
     // Get current metadata
-    const currentMetadata = await kvNamespace.get(metadataKey, { type: 'json' })
+    const currentMetadata = await kvGetWithFallback(kvNamespace, metadataKey, { type: 'json' })
 
     // Store generation timestamp and metadata snapshot
-    await rateLimitedBulkKVWrite(kvNamespace, [
-      { key: lastGenKey, value: timestamp, options: { expirationTtl: 7 * 24 * 60 * 60 } }, // 7 days
-      { key: lastMetadataKey, value: JSON.stringify(currentMetadata), options: { expirationTtl: 7 * 24 * 60 * 60 } } // 7 days
-    ], 'change-detection')
+    await rateLimitedKVWrite(kvNamespace, lastGenKey, timestamp, 'change-detection', { expirationTtl: 7 * 24 * 60 * 60 })
+    await rateLimitedKVWrite(kvNamespace, lastMetadataKey, JSON.stringify(currentMetadata), 'change-detection', { expirationTtl: 7 * 24 * 60 * 60 })
 
     console.log(`📝 Recorded generation for '${cacheKeyPrefix}' at ${timestamp}`)
   } catch (error) {

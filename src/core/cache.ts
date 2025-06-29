@@ -4,6 +4,7 @@
  */
 
 import { trackKVWrite } from '../analytics/write-tracker'
+import { kvGetWithFallback, kvPutWithFallback, kvDeleteWithFallback, kvListWithFallback } from '../utils/kv-fallback-wrapper'
 
 export interface CacheConfig {
   ttlHours: number
@@ -34,7 +35,7 @@ function cleanMemoryCache(): void {
 }
 
 /**
- * Get from memory cache first, then KV
+ * Get from memory cache first, then KV with fallback protection
  */
 async function getFromMemoryOrKv<T>(
   kvNamespace: any,
@@ -46,9 +47,9 @@ async function getFromMemoryOrKv<T>(
     return memEntry.value as T
   }
 
-  // Fallback to KV
+  // Fallback to KV with rate limit protection
   try {
-    const cached = await kvNamespace.get(fullKey, { type: 'json' })
+    const cached = await kvGetWithFallback(kvNamespace, fullKey, { type: 'json' })
     if (cached !== null) {
       // Store in memory cache for faster future access
       const hash = generateHash(cached)
@@ -95,7 +96,7 @@ export async function getFromCache<T>(
 }
 
 /**
- * Put to cache with aggressive write reduction - CRASH if write fails
+ * Put to cache with aggressive write reduction and KV fallback protection
  */
 export async function putToCache<T>(
   kvNamespace: any,
@@ -129,8 +130,8 @@ export async function putToCache<T>(
       return; // Skip the write
     }
 
-    // Fallback to KV read-before-write optimization
-    const existingValue = await kvNamespace.get(fullKey)
+    // Fallback to KV read-before-write optimization with rate limit protection
+    const existingValue = await kvGetWithFallback(kvNamespace, fullKey)
     const newValue = JSON.stringify(value)
 
     if (existingValue === newValue) {
@@ -156,17 +157,17 @@ export async function putToCache<T>(
       return; // Skip the write
     }
 
-    // Perform the KV write
-    await kvNamespace.put(fullKey, newValue, {
+    // Perform the KV write with fallback protection
+    const kvWriteSuccess = await kvPutWithFallback(kvNamespace, fullKey, newValue, {
       expirationTtl: ttlSeconds
     })
 
-    // Track the KV write for analytics
+    // Track the KV write for analytics (handle fallback in tracking too)
     await trackKVWrite(kvNamespace, config.prefix).catch(error => {
       console.warn(`Analytics tracking failed for ${config.prefix}:`, error)
     })
 
-    // Update memory cache after successful KV write
+    // Update memory cache after KV write attempt (successful or fallback)
     memoryCache.set(fullKey, {
       value: value,
       expires: Date.now() + MEMORY_CACHE_TTL_MS,
@@ -176,23 +177,23 @@ export async function putToCache<T>(
     if (request) {
       const logEntry = {
         level: "INFO",
-        message: `KV write completed for key '${fullKey}'.`,
+        message: `KV write ${kvWriteSuccess ? 'completed' : 'fell back to memory'} for key '${fullKey}'.`,
         url: request.url,
         method: request.method,
       };
       console.log(JSON.stringify(logEntry, null, 2));
     } else {
-      console.log(`KV write completed for key '${fullKey}'.`);
+      console.log(`KV write ${kvWriteSuccess ? 'completed' : 'fell back to memory'} for key '${fullKey}'.`);
     }
 
   } catch (error) {
-    // CRASH if cache write fails
+    // CRASH if cache write fails (non-rate-limit errors)
     throw new Error(`Cache write failed for key ${fullKey}: ${(error as Error).message}`)
   }
 }
 
 /**
- * Clear cache entry from both memory and KV - CRASH if delete fails
+ * Clear cache entry from both memory and KV with fallback protection
  */
 export async function clearFromCache(
   kvNamespace: any,
@@ -205,17 +206,17 @@ export async function clearFromCache(
     // Clear from memory cache first
     memoryCache.delete(fullKey)
 
-    // Clear from KV
-    await kvNamespace.delete(fullKey)
+    // Clear from KV with fallback protection
+    const kvDeleteSuccess = await kvDeleteWithFallback(kvNamespace, fullKey)
 
-    console.log(`Cache cleared for key '${fullKey}' (both memory and KV).`)
+    console.log(`Cache cleared for key '${fullKey}' (memory + ${kvDeleteSuccess ? 'KV' : 'KV fallback'}).`)
   } catch (error) {
     throw new Error(`Cache delete failed for key ${fullKey}: ${(error as Error).message}`)
   }
 }
 
 /**
- * Clear all cache entries with prefix from both memory and KV - CRASH if any delete fails
+ * Clear all cache entries with prefix from both memory and KV with fallback protection
  */
 export async function clearAllCache(
   kvNamespace: any,
@@ -232,15 +233,18 @@ export async function clearAllCache(
       }
     })
 
-    // Clear from KV
-    const list = await kvNamespace.list({ prefix: memoryPrefix })
+    // Clear from KV with fallback protection
+    const list = await kvListWithFallback(kvNamespace, { prefix: memoryPrefix })
+
+    // Use fallback-protected delete for each key
     const deletePromises = list.keys.map((item: any) =>
-      kvNamespace.delete(item.name)
+      kvDeleteWithFallback(kvNamespace, item.name)
     )
 
-    await Promise.all(deletePromises)
+    const deleteResults = await Promise.all(deletePromises)
+    const kvDeletedCount = deleteResults.filter(success => success).length
 
-    console.log(`Cache clear-all completed: ${memoryClearedCount} memory entries, ${list.keys.length} KV entries for prefix '${config.prefix}'.`)
+    console.log(`Cache clear-all completed: ${memoryClearedCount} memory entries, ${kvDeletedCount}/${list.keys.length} KV entries for prefix '${config.prefix}'.`)
     return list.keys.length
   } catch (error) {
     throw new Error(`Cache clear-all failed for prefix ${config.prefix}: ${(error as Error).message}`)
