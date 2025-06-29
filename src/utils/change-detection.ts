@@ -14,21 +14,23 @@ export async function hasRepositoryDataChanged(
   cacheKeyPrefix: string,
   metadataKey: string
 ): Promise<boolean> {
+  // When KV is locked, skip change detection and don't regenerate
+  // This prevents unnecessary API calls when we can't cache anyway
   try {
     // Get the last generation timestamp
     const lastGenKey = `${cacheKeyPrefix}:last-generation`
     const lastGeneration = await kvGetWithFallback(kvNamespace, lastGenKey)
 
     if (!lastGeneration) {
-      console.log(`🔄 No previous generation found for '${cacheKeyPrefix}', forcing regeneration.`)
-      return true // Force regeneration if never generated before
+      console.log(`🔄 No previous generation found for '${cacheKeyPrefix}', assuming no changes.`)
+      return false // Don't regenerate when KV might be locked
     }
 
     // Get current metadata
     const currentMetadata = await kvGetWithFallback(kvNamespace, metadataKey, { type: 'json' })
     if (!currentMetadata) {
-      console.log(`🔄 No current metadata found for '${metadataKey}', forcing regeneration.`)
-      return true // Force regeneration if no metadata
+      console.log(`🔄 No current metadata found for '${metadataKey}', assuming no changes.`)
+      return false // Don't regenerate when KV might be locked
     }
 
     // Get cached metadata from last generation
@@ -36,8 +38,8 @@ export async function hasRepositoryDataChanged(
     const lastMetadata = await kvGetWithFallback(kvNamespace, lastMetadataKey, { type: 'json' })
 
     if (!lastMetadata) {
-      console.log(`🔄 No previous metadata found for '${cacheKeyPrefix}', forcing regeneration.`)
-      return true // Force regeneration if no previous metadata
+      console.log(`🔄 No previous metadata found for '${cacheKeyPrefix}', assuming no changes.`)
+      return false // Don't regenerate when KV might be locked
     }
 
     // Compare metadata to detect changes
@@ -54,7 +56,7 @@ export async function hasRepositoryDataChanged(
 
   } catch (error) {
     console.warn(`Failed to check repository changes for '${cacheKeyPrefix}':`, error)
-    return true // Force regeneration on error to be safe
+    return false // Don't regenerate when there's an error (likely KV locked)
   }
 }
 
@@ -66,6 +68,7 @@ export async function recordGeneration(
   cacheKeyPrefix: string,
   metadataKey: string
 ): Promise<void> {
+  // Skip recording when KV might be locked
   try {
     const timestamp = new Date().toISOString()
     const lastGenKey = `${cacheKeyPrefix}:last-generation`
@@ -74,9 +77,15 @@ export async function recordGeneration(
     // Get current metadata
     const currentMetadata = await kvGetWithFallback(kvNamespace, metadataKey, { type: 'json' })
 
-    // Store generation timestamp and metadata snapshot
-    await rateLimitedKVWrite(kvNamespace, lastGenKey, timestamp, 'change-detection', { expirationTtl: 7 * 24 * 60 * 60 })
-    await rateLimitedKVWrite(kvNamespace, lastMetadataKey, JSON.stringify(currentMetadata), 'change-detection', { expirationTtl: 7 * 24 * 60 * 60 })
+    // Skip if we can't get metadata (KV might be locked)
+    if (!currentMetadata) {
+      console.warn(`Skipping generation record for '${cacheKeyPrefix}' - no metadata available`)
+      return
+    }
+
+    // Store generation timestamp and metadata snapshot with 30 day expiration
+    await rateLimitedKVWrite(kvNamespace, lastGenKey, timestamp, 'change-detection', { expirationTtl: 30 * 24 * 60 * 60 })
+    await rateLimitedKVWrite(kvNamespace, lastMetadataKey, JSON.stringify(currentMetadata), 'change-detection', { expirationTtl: 30 * 24 * 60 * 60 })
 
     console.log(`📝 Recorded generation for '${cacheKeyPrefix}' at ${timestamp}`)
   } catch (error) {

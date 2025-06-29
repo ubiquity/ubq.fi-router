@@ -95,8 +95,8 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }));
     // Force refresh: skip cache and discover services
     serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
-    // Cache good results for 1 hour, negative results for 5 minutes
-    const expirationTtl = serviceType === 'service-none' || serviceType === 'plugin-none' ? 300 : 3600
+    // Cache all results for 24 hours to reduce writes
+    const expirationTtl = 86400 // 24 hours for ALL results
     await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-refresh', { expirationTtl })
   } else {
     // Normal flow: check cache first
@@ -106,8 +106,8 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     if (!serviceType) {
       // Cache miss: discover and cache services with coalescing
       serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
-      // Cache good results for 1 hour, negative results for 5 minutes
-      const expirationTtl = serviceType === 'service-none' || serviceType === 'plugin-none' ? 300 : 3600
+      // Cache all results for 24 hours to reduce writes
+      const expirationTtl = 86400 // 24 hours for ALL results
       await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-cache-miss', { expirationTtl })
     }
   }

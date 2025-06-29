@@ -16,7 +16,10 @@ function isKVRateLimited(error: any): boolean {
     errorMessage.includes('Rate limited') ||
     errorMessage.includes('rate limit') ||
     errorMessage.includes('Too Many Requests') ||
-    errorMessage.includes('429')
+    errorMessage.includes('429') ||
+    errorMessage.includes('limit exceeded') || // Daily limit exceeded
+    errorMessage.includes('KV put() limit exceeded') || // Specific KV put limit
+    errorMessage.includes('KV get() limit exceeded') // Specific KV get limit
   )
 }
 
