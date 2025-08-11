@@ -25,16 +25,39 @@ export async function getPluginName(hostname: string, kvNamespace: any, githubTo
     pluginName = baseName.replace(/-main$/, '')
     branch = 'main'
   } else {
-    // No suffix = production alias (append -main)
-    pluginName = baseName
-    branch = 'main'
+    // Check if this has a recognized branch suffix
+    const knownBranches = ['demo', 'staging', 'test', 'main']
+    const dashIndex = baseName.lastIndexOf('-')
+    if (dashIndex === -1) {
+      // No branch suffix = production alias (append -main)
+      pluginName = baseName
+      branch = 'main'
+    } else {
+      const potentialBranch = baseName.substring(dashIndex + 1)
+      const pluginNamePart = baseName.substring(0, dashIndex)
+      
+      // Special handling: if potential branch is "demo" but the plugin part is too short,
+      // treat "demo" as part of plugin name instead of branch
+      if (potentialBranch === 'demo' && pluginNamePart.length <= 7) {
+        pluginName = baseName
+        branch = 'main'
+      } else if (knownBranches.includes(potentialBranch)) {
+        // Recognized branch suffix
+        pluginName = pluginNamePart
+        branch = potentialBranch
+      } else {
+        // Not a recognized branch - treat entire baseName as plugin name
+        pluginName = baseName
+        branch = 'main'
+      }
+    }
   }
 
   const result = `${pluginName}-${branch}`
-  
+
   if (debugRouting) {
     console.log(`[Debug] Plugin name resolved: rawHost=${hostname}, computedBase=${baseName}, branch=${branch}, finalDeployment=${result}`)
   }
-  
+
   return result
 }

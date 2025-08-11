@@ -1,5 +1,5 @@
 import { getPluginName } from "./get-plugin-name.ts"
-import { getCachedRoute, cacheRoute } from "../core/cache.ts"
+import { getCachedRoute, cacheRoute, clearFromCache, CACHE_CONFIGS } from "../core/cache.ts"
 
 async function needsHealing(cachedUrl: string, requestHost: string, kvNamespace: any, githubToken: string, debugRouting: boolean): Promise<boolean> {
   try {
@@ -28,8 +28,9 @@ export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: an
     console.log(`[CACHE DEBUG] Healing needed for ${hostname}: ${healingNeeded}`)
     
     if (healingNeeded) {
-      console.log(`[CACHE DEBUG] Stale cache detected for ${hostname}. Recomputing and will update cache.`)
-      // Don't return cached URL, fall through to regeneration
+      console.log(`[CACHE DEBUG] Stale cache detected for ${hostname}. Clearing cache entry and recomputing.`)
+      await clearFromCache(kvNamespace, `${hostname}${url.pathname}`, CACHE_CONFIGS.ROUTES)
+      console.log(`[CACHE DEBUG] Stale cache entry cleared for ${hostname}${url.pathname}`)
     } else {
       // Reconstruct URL with current search params (query string might change)
       const cachedUrlObj = new URL(cachedUrl)
