@@ -30,7 +30,7 @@ export async function getPluginName(hostname: string, kvNamespace: any, githubTo
     branch = 'main'
   }
 
-  const result = hostname.endsWith('.ubq.fi') && branch === 'main' ? pluginName : `${pluginName}-${branch}`
+  const result = `${pluginName}-${branch}`
   
   if (debugRouting) {
     console.log(`[Debug] Plugin name resolved: rawHost=${hostname}, computedBase=${baseName}, branch=${branch}, finalDeployment=${result}`)
