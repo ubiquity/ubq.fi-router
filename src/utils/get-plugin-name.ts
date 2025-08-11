@@ -2,9 +2,8 @@ import { isPluginDomain } from "./is-plugin-domain"
 import { getKnownPlugins } from "./get-known-plugins"
 import { findBasePlugin } from "./find-base-plugin"
 
-/**
- * Get plugin name from hostname
- */
+const DEBUG_PLUGIN_ROUTING = process.env.DEBUG_PLUGIN_ROUTING === 'true'
+
 export async function getPluginName(hostname: string, kvNamespace: any, githubToken: string): Promise<string> {
   if (!isPluginDomain(hostname)) {
     throw new Error('Not a plugin domain')
@@ -35,7 +34,11 @@ export async function getPluginName(hostname: string, kvNamespace: any, githubTo
     branch = 'main'
   }
 
-  // Return plugin name with branch suffix - no GitHub API validation required
-  // The actual validation happens when checking the manifest endpoint
-  return `${pluginName}-${branch}`
+  const result = `${pluginName}-${branch}`
+  
+  if (DEBUG_PLUGIN_ROUTING) {
+    console.log(`[Debug] Plugin name resolved: rawHost=${hostname}, computedBase=${baseName}, branch=${branch}, finalDeployment=${result}`)
+  }
+  
+  return result
 }

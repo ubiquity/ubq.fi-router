@@ -3,25 +3,29 @@
  * Routes requests from ubq.fi domains to Deno Deploy or Cloudflare Pages
  */
 
-import type { ServiceType, CacheControlValue } from './types'
-import { getSubdomainKey } from './utils'
-import { coalesceDiscovery } from './service-discovery'
-import { routeRequest } from './routing'
-import { getCachedSitemapEntries } from './sitemap-discovery'
-import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
-import { getCachedPluginMapEntries } from './plugin-map-discovery'
-import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
-import { rateLimitedKVWrite } from './utils/rate-limited-kv-write'
-import { kvGetWithFallback, kvDeleteWithFallback, kvListWithFallback } from './utils/kv-fallback-wrapper'
+import type { ServiceType, CacheControlValue } from './types.ts'
+import { getSubdomainKey } from './utils/index.ts'
+import { coalesceDiscovery } from './service-discovery.ts'
+import { routeRequest } from './routing.ts'
+import { getCachedSitemapEntries } from './sitemap-discovery.ts'
+import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator.ts'
+import { getCachedPluginMapEntries } from './plugin-map-discovery.ts'
+import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator.ts'
+import { rateLimitedKVWrite } from './utils/rate-limited-kv-write.ts'
+import { kvGetWithFallback, kvDeleteWithFallback, kvListWithFallback } from './utils/kv-fallback-wrapper.ts'
 
 interface Env {
   ROUTER_CACHE: KVNamespace
   GITHUB_TOKEN: string
+  ROUTER_COMMIT: string
+  DEBUG_PLUGIN_ROUTING: string
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    return handleRequest(request, env)
+    const response = await handleRequest(request, env)
+    response.headers.set('x-router-version', env.ROUTER_COMMIT ?? 'dev')
+    return response
   }
 }
 
@@ -81,7 +85,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (cacheControl === 'clear-all') {
     // Clear all route cache entries
     const { keys } = await kvListWithFallback(env.ROUTER_CACHE, { prefix: 'route:' })
-    const deletePromises = keys.map(key => kvDeleteWithFallback(env.ROUTER_CACHE, key.name))
+    const deletePromises = keys.map((key: { name: string }) => kvDeleteWithFallback(env.ROUTER_CACHE, key.name))
     await Promise.all(deletePromises)
     return new Response(`Cleared ${keys.length} cache entries`, { status: 200 })
   }
