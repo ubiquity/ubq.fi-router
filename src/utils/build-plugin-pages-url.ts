@@ -1,14 +1,12 @@
 import { getPluginName } from "./get-plugin-name.ts"
 import { getCachedRoute, cacheRoute } from "../core/cache.ts"
 
-const DEBUG_PLUGIN_ROUTING = process.env.DEBUG_PLUGIN_ROUTING === 'true'
-
-async function needsHealing(cachedUrl: string, requestHost: string, kvNamespace: any, githubToken: string): Promise<boolean> {
+async function needsHealing(cachedUrl: string, requestHost: string, kvNamespace: any, githubToken: string, debugRouting: boolean): Promise<boolean> {
   try {
     const u = new URL(cachedUrl)
-    const expectedDeployment = await getPluginName(requestHost, kvNamespace, githubToken)
+    const expectedDeployment = await getPluginName(requestHost, kvNamespace, githubToken, debugRouting)
     const isHealingNeeded = !u.hostname.startsWith(expectedDeployment)
-    if (isHealingNeeded && DEBUG_PLUGIN_ROUTING) {
+    if (isHealingNeeded && debugRouting) {
       console.log(`Healing needed for ${requestHost}: cached target ${u.hostname} does not match expected ${expectedDeployment}`)
     }
     return isHealingNeeded
@@ -20,15 +18,15 @@ async function needsHealing(cachedUrl: string, requestHost: string, kvNamespace:
 /**
  * Build plugin Pages URL with route caching optimization
  */
-export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespace: any, githubToken: string): Promise<string> {
+export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespace: any, githubToken: string, debugRouting: boolean): Promise<string> {
   // Create a unique cache key for Pages routes (different from Deno routes)
   const pagesCacheKey = `pages:${url.pathname}`
 
   // Try to get cached route first
   const cachedUrl = await getCachedRoute(kvNamespace, hostname, pagesCacheKey)
   if (cachedUrl) {
-    if (await needsHealing(cachedUrl, hostname, kvNamespace, githubToken)) {
-      if (DEBUG_PLUGIN_ROUTING) {
+    if (await needsHealing(cachedUrl, hostname, kvNamespace, githubToken, debugRouting)) {
+      if (debugRouting) {
         console.log(`[Debug] Stale cache detected for ${hostname}. Recomputing.`)
       }
     } else {
@@ -40,10 +38,10 @@ export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespac
 
   // Perform plugin name lookup (either no cache or healing needed)
   try {
-    const pluginName = await getPluginName(hostname, kvNamespace, githubToken)
+    const pluginName = await getPluginName(hostname, kvNamespace, githubToken, debugRouting)
     const targetUrl = `https://${pluginName}.pages.dev${url.pathname}${url.search}`
 
-    if (DEBUG_PLUGIN_ROUTING) {
+    if (debugRouting) {
       console.log(`[Debug] Plugin pages route resolved: rawHost=${hostname}, computedBase=${pluginName}, finalDeployment=${pluginName}.pages.dev, target=${targetUrl}`)
     }
 
@@ -53,7 +51,7 @@ export async function buildPluginPagesUrl(hostname: string, url: URL, kvNamespac
 
     return targetUrl
   } catch (error) {
-    if (DEBUG_PLUGIN_ROUTING) {
+    if (debugRouting) {
       console.log(`[Debug] Plugin pages routing failed for ${hostname}: ${error}`)
     }
     throw error

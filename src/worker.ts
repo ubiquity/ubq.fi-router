@@ -122,7 +122,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   }
 
   // Route based on discovered/cached service availability
-  return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE, env.GITHUB_TOKEN)
+  return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE, env.GITHUB_TOKEN, env.DEBUG_PLUGIN_ROUTING === 'true')
 }
 
 /**

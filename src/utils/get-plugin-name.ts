@@ -1,10 +1,6 @@
 import { isPluginDomain } from "./is-plugin-domain"
-import { getKnownPlugins } from "./get-known-plugins"
-import { findBasePlugin } from "./find-base-plugin"
 
-const DEBUG_PLUGIN_ROUTING = process.env.DEBUG_PLUGIN_ROUTING === 'true'
-
-export async function getPluginName(hostname: string, kvNamespace: any, githubToken: string): Promise<string> {
+export async function getPluginName(hostname: string, kvNamespace: any, githubToken: string, debugRouting: boolean): Promise<string> {
   if (!isPluginDomain(hostname)) {
     throw new Error('Not a plugin domain')
   }
@@ -36,7 +32,7 @@ export async function getPluginName(hostname: string, kvNamespace: any, githubTo
 
   const result = `${pluginName}-${branch}`
   
-  if (DEBUG_PLUGIN_ROUTING) {
+  if (debugRouting) {
     console.log(`[Debug] Plugin name resolved: rawHost=${hostname}, computedBase=${baseName}, branch=${branch}, finalDeployment=${result}`)
   }
   

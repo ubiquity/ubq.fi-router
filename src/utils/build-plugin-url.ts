@@ -1,14 +1,12 @@
 import { getPluginName } from "./get-plugin-name.ts"
 import { getCachedRoute, cacheRoute } from "../core/cache.ts"
 
-const DEBUG_PLUGIN_ROUTING = process.env.DEBUG_PLUGIN_ROUTING === 'true'
-
-async function needsHealing(cachedUrl: string, requestHost: string, kvNamespace: any, githubToken: string): Promise<boolean> {
+async function needsHealing(cachedUrl: string, requestHost: string, kvNamespace: any, githubToken: string, debugRouting: boolean): Promise<boolean> {
   try {
     const u = new URL(cachedUrl)
-    const expectedDeployment = await getPluginName(requestHost, kvNamespace, githubToken)
+    const expectedDeployment = await getPluginName(requestHost, kvNamespace, githubToken, debugRouting)
     const isHealingNeeded = !u.hostname.startsWith(expectedDeployment)
-    if (isHealingNeeded && DEBUG_PLUGIN_ROUTING) {
+    if (isHealingNeeded && debugRouting) {
       console.log(`Healing needed for ${requestHost}: cached target ${u.hostname} does not match expected ${expectedDeployment}`)
     }
     return isHealingNeeded
@@ -20,13 +18,13 @@ async function needsHealing(cachedUrl: string, requestHost: string, kvNamespace:
 /**
  * Build plugin Deno URL with route caching optimization
  */
-export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: any, githubToken: string): Promise<string> {
+export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: any, githubToken: string, debugRouting: boolean): Promise<string> {
   // Try to get cached route first
   const cachedUrl = await getCachedRoute(kvNamespace, hostname, url.pathname)
   console.log(`[CACHE DEBUG] Got cached URL for ${hostname}${url.pathname}: ${cachedUrl}`)
   
   if (cachedUrl) {
-    const healingNeeded = await needsHealing(cachedUrl, hostname, kvNamespace, githubToken)
+    const healingNeeded = await needsHealing(cachedUrl, hostname, kvNamespace, githubToken, debugRouting)
     console.log(`[CACHE DEBUG] Healing needed for ${hostname}: ${healingNeeded}`)
     
     if (healingNeeded) {
@@ -41,11 +39,11 @@ export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: an
 
   // Perform plugin name lookup (either no cache or healing needed)
   try {
-    const pluginName = await getPluginName(hostname, kvNamespace, githubToken)
+    const pluginName = await getPluginName(hostname, kvNamespace, githubToken, debugRouting)
     const targetUrl = `https://${pluginName}.deno.dev${url.pathname}${url.search}`
     console.log(`[CACHE DEBUG] Generated fresh URL: ${targetUrl}`)
 
-    if (DEBUG_PLUGIN_ROUTING) {
+    if (debugRouting) {
       console.log(`[Debug] Plugin route resolved: rawHost=${hostname}, computedBase=${pluginName}, finalDeployment=${pluginName}.deno.dev, target=${targetUrl}`)
     }
 
@@ -57,7 +55,7 @@ export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: an
 
     return targetUrl
   } catch (error) {
-    if (DEBUG_PLUGIN_ROUTING) {
+    if (debugRouting) {
       console.log(`[Debug] Plugin routing failed for ${hostname}: ${error}`)
     }
     throw error

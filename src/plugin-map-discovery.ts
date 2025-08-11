@@ -12,14 +12,13 @@ import { shouldRegeneratePluginMap, recordPluginMapGeneration } from './utils/ch
 /**
  * Discover all plugins for plugin-map - CRASH on any failure
  */
-export async function discoverAllForPluginMap(kvNamespace: any, githubToken: string | undefined, generationTimestamp: string): Promise<PluginMapEntry[]> {
-  const token = githubToken || process.env.GITHUB_TOKEN
-  if (!token) {
-    throw new Error('GITHUB_TOKEN is required for plugin-map generation (provide as parameter or environment variable)')
+export async function discoverAllForPluginMap(kvNamespace: any, githubToken: string, generationTimestamp: string): Promise<PluginMapEntry[]> {
+  if (!githubToken) {
+    throw new Error('GITHUB_TOKEN is required for plugin-map generation')
   }
 
   // Get all plugin discovery results - CRASH if fails
-  const pluginMap = await discoverAllPlugins(kvNamespace, token)
+  const pluginMap = await discoverAllPlugins(kvNamespace, githubToken)
 
   const entries: PluginMapEntry[] = []
 
@@ -50,7 +49,7 @@ export async function discoverAllForPluginMap(kvNamespace: any, githubToken: str
 export async function getCachedPluginMapEntries(
   kvNamespace: any,
   forceRefresh = false,
-  githubToken?: string,
+  githubToken: string,
   // This is a diagnostic parameter, not for general use
   // It is used to pass the request object for logging purposes
   request?: any
