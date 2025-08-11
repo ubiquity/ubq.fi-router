@@ -222,7 +222,7 @@ describe("Plugin Routing Integration Tests", () => {
       console.log("🔄 Testing cache healing...")
 
       const hostname = "os-test-plugin.ubq.fi"
-      const cacheKey = `route:${hostname}:/`
+      const cacheKey = `route:${hostname}/`
       const staleUrl = "https://test-plugin-main-main.deno.dev/"
       
       await realKV.put(cacheKey, staleUrl)

@@ -23,11 +23,15 @@ async function needsHealing(cachedUrl: string, requestHost: string, kvNamespace:
 export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: any, githubToken: string): Promise<string> {
   // Try to get cached route first
   const cachedUrl = await getCachedRoute(kvNamespace, hostname, url.pathname)
+  console.log(`[CACHE DEBUG] Got cached URL for ${hostname}${url.pathname}: ${cachedUrl}`)
+  
   if (cachedUrl) {
-    if (await needsHealing(cachedUrl, hostname, kvNamespace, githubToken)) {
-      if (DEBUG_PLUGIN_ROUTING) {
-        console.log(`[Debug] Stale cache detected for ${hostname}. Recomputing.`)
-      }
+    const healingNeeded = await needsHealing(cachedUrl, hostname, kvNamespace, githubToken)
+    console.log(`[CACHE DEBUG] Healing needed for ${hostname}: ${healingNeeded}`)
+    
+    if (healingNeeded) {
+      console.log(`[CACHE DEBUG] Stale cache detected for ${hostname}. Recomputing and will update cache.`)
+      // Don't return cached URL, fall through to regeneration
     } else {
       // Reconstruct URL with current search params (query string might change)
       const cachedUrlObj = new URL(cachedUrl)
@@ -39,6 +43,7 @@ export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: an
   try {
     const pluginName = await getPluginName(hostname, kvNamespace, githubToken)
     const targetUrl = `https://${pluginName}.deno.dev${url.pathname}${url.search}`
+    console.log(`[CACHE DEBUG] Generated fresh URL: ${targetUrl}`)
 
     if (DEBUG_PLUGIN_ROUTING) {
       console.log(`[Debug] Plugin route resolved: rawHost=${hostname}, computedBase=${pluginName}, finalDeployment=${pluginName}.deno.dev, target=${targetUrl}`)
@@ -46,7 +51,9 @@ export async function buildPluginUrl(hostname: string, url: URL, kvNamespace: an
 
     // Cache the route resolution (without search params for better cache hits)
     const baseTargetUrl = `https://${pluginName}.deno.dev${url.pathname}`
+    console.log(`[CACHE DEBUG] About to cache: ${hostname}${url.pathname} -> ${baseTargetUrl}`)
     await cacheRoute(kvNamespace, hostname, url.pathname, baseTargetUrl)
+    console.log(`[CACHE DEBUG] Cache update completed`)
 
     return targetUrl
   } catch (error) {
