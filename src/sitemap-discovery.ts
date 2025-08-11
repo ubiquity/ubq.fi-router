@@ -15,16 +15,15 @@ export { discoverAllServices } from './core/discovery'
 /**
  * Discover all services and plugins for sitemap - CRASH on any failure
  */
-export async function discoverAllForSitemap(kvNamespace: any, githubToken: string | undefined, generationTimestamp: string): Promise<SitemapEntry[]> {
-  const token = githubToken || process.env.GITHUB_TOKEN
-  if (!token) {
-    throw new Error('GITHUB_TOKEN is required for sitemap generation (provide as parameter or environment variable)')
+export async function discoverAllForSitemap(kvNamespace: any, githubToken: string, generationTimestamp: string): Promise<SitemapEntry[]> {
+  if (!githubToken) {
+    throw new Error('GITHUB_TOKEN is required for sitemap generation')
   }
 
   // Discover both in parallel - CRASH if either fails
   const [serviceMap, pluginMap] = await Promise.all([
-    discoverAllServices(kvNamespace, token),
-    discoverAllPlugins(kvNamespace, token)
+    discoverAllServices(kvNamespace, githubToken),
+    discoverAllPlugins(kvNamespace, githubToken)
   ])
 
   const entries: SitemapEntry[] = []
@@ -51,7 +50,7 @@ export async function discoverAllForSitemap(kvNamespace: any, githubToken: strin
 export async function getCachedSitemapEntries(
   kvNamespace: any,
   forceRefresh = false,
-  githubToken?: string,
+  githubToken: string,
   // This is a diagnostic parameter, not for general use
   // It is used to pass the request object for logging purposes
   request?: any

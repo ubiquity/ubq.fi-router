@@ -1,6 +1,7 @@
 import type { ServiceType } from './types'
 import { discoverServiceType, discoverPluginType } from './core/discovery'
 import { isPluginDomain } from './utils'
+import { getPluginName } from './utils/get-plugin-name'
 
 // Request coalescing map to prevent duplicate service discoveries
 const inFlightDiscoveries = new Map<string, Promise<ServiceType>>()
@@ -21,7 +22,7 @@ export async function coalesceDiscovery(subdomain: string, url: URL, kvNamespace
 
   // Start new discovery using core modules - CRASH if fails
   const discoveryPromise = isPluginDomain(url.hostname)
-    ? discoverPluginType(url.hostname.replace('.ubq.fi', '').replace('os-', ''))
+    ? discoverPluginType(await getPluginName(url.hostname, kvNamespace, githubToken, false))
     : discoverServiceType(subdomain, url)
   
   inFlightDiscoveries.set(discoveryKey, discoveryPromise)

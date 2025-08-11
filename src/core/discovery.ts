@@ -79,7 +79,7 @@ export async function discoverServiceType(subdomain: string, url: URL): Promise<
  */
 export async function discoverPluginType(pluginName: string): Promise<ServiceType> {
   // Check if plugin exists on Deno Deploy by testing manifest
-  const manifestUrl = `https://${pluginName}-main.deno.dev/manifest.json`
+  const manifestUrl = `https://${pluginName}.deno.dev/manifest.json`
 
   try {
     const response = await fetch(manifestUrl, {
@@ -168,7 +168,7 @@ export async function discoverAllPlugins(kvNamespace: any, githubToken: string):
       let manifest: PluginManifest | undefined
       if (serviceType !== "plugin-none") {
         try {
-          const baseUrl = `https://${pluginName}-main.deno.dev`
+          const baseUrl = `https://${pluginName}.deno.dev`
           manifest = await fetchPluginManifest(baseUrl)
         } catch (error) {
           // Manifest fetch failed but plugin exists - this is OK

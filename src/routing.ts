@@ -5,7 +5,7 @@ import { buildDenoUrl, buildPagesUrl, buildPluginUrl, buildPluginPagesUrl, isPlu
  * Route the request based on service availability
  * OPTIMIZED: Streams responses for better performance
  */
-export async function routeRequest(request: Request, url: URL, subdomain: string, serviceType: ServiceType, kvNamespace: any, githubToken: string): Promise<Response> {
+export async function routeRequest(request: Request, url: URL, subdomain: string, serviceType: ServiceType, kvNamespace: any, githubToken: string, debugRouting: boolean): Promise<Response> {
   switch (serviceType) {
     case "service-deno":
       return await proxyRequest(request, buildDenoUrl(subdomain, url))
@@ -27,20 +27,20 @@ export async function routeRequest(request: Request, url: URL, subdomain: string
       return denoResponse
 
     case "plugin-deno":
-      return await proxyRequest(request, await buildPluginUrl(url.hostname, url, kvNamespace, githubToken))
+      return await proxyRequest(request, await buildPluginUrl(url.hostname, url, kvNamespace, githubToken, debugRouting))
 
     case "plugin-pages":
-      return await proxyRequest(request, await buildPluginPagesUrl(url.hostname, url, kvNamespace, githubToken))
+      return await proxyRequest(request, await buildPluginPagesUrl(url.hostname, url, kvNamespace, githubToken, debugRouting))
 
     case "plugin-both":
       // Try plugin on Deno first, fallback to plugin on Pages on 404
-      const pluginDenoUrl = await buildPluginUrl(url.hostname, url, kvNamespace, githubToken)
+      const pluginDenoUrl = await buildPluginUrl(url.hostname, url, kvNamespace, githubToken, debugRouting)
       const pluginDenoResponse = await proxyRequest(request, pluginDenoUrl)
 
       if (pluginDenoResponse.status === 404) {
         // Important: consume the body to free up resources
         await pluginDenoResponse.arrayBuffer()
-        return await proxyRequest(request, await buildPluginPagesUrl(url.hostname, url, kvNamespace, githubToken))
+        return await proxyRequest(request, await buildPluginPagesUrl(url.hostname, url, kvNamespace, githubToken, debugRouting))
       }
 
       return pluginDenoResponse

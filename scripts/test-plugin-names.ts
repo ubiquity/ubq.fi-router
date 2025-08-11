@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { getPluginName } from '../src/utils'
+import { getPluginName } from '../src/utils/get-plugin-name.ts'
 
 // Mock KV namespace for testing
 const mockKV = {
@@ -17,11 +17,11 @@ const mockKV = {
 // Only testing with known real plugins from GitHub
 const testCases = [
   // Production alias - these use real plugins that exist
-  { input: 'os-command-config.ubq.fi', expected: 'command-config-main' },
+  { input: 'os-command-config.ubq.fi', expected: 'command-config' },
 
   // Standard branches with real plugins
-  { input: 'os-command-config-main.ubq.fi', expected: 'command-config-main' },
-  { input: 'os-command-config-dev.ubq.fi', expected: 'command-config-dev' },
+  { input: 'os-command-config-main.ubq.fi', expected: 'command-config' },
+  { input: 'os-command-config-dev.ubq.fi', expected: 'command-config-development' },
 
   // Dynamic branch names with real plugins (these should work with real plugin base)
   { input: 'os-command-config-mybranch.ubq.fi', expected: 'command-config-mybranch' },
@@ -39,7 +39,7 @@ let failed = 0
 
 for (const { input, expected } of testCases) {
   try {
-    const actual = await getPluginName(input, mockKV)
+    const actual = await getPluginName(input, mockKV, '', false)
     if (actual === expected) {
       console.log(`✅ ${input} → ${actual}`)
       passed++
@@ -48,7 +48,7 @@ for (const { input, expected } of testCases) {
       failed++
     }
   } catch (error) {
-    console.log(`❌ ${input} → ERROR: ${error.message}`)
+    console.log(`❌ ${input} → ERROR: ${(error as Error).message}`)
     failed++
   }
 }
