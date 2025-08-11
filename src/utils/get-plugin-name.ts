@@ -1,4 +1,4 @@
-import { isPluginDomain } from "./is-plugin-domain"
+import { isPluginDomain } from "./is-plugin-domain.ts"
 
 export async function getPluginName(hostname: string, kvNamespace: any, githubToken: string, debugRouting: boolean): Promise<string> {
   if (!isPluginDomain(hostname)) {
@@ -30,7 +30,7 @@ export async function getPluginName(hostname: string, kvNamespace: any, githubTo
     branch = 'main'
   }
 
-  const result = `${pluginName}-${branch}`
+  const result = hostname.endsWith('.ubq.fi') && branch === 'main' ? pluginName : `${pluginName}-${branch}`
   
   if (debugRouting) {
     console.log(`[Debug] Plugin name resolved: rawHost=${hostname}, computedBase=${baseName}, branch=${branch}, finalDeployment=${result}`)
