@@ -16,7 +16,7 @@ import { kvGetWithFallback, kvDeleteWithFallback, kvListWithFallback } from './u
 
 interface Env {
   ROUTER_CACHE: KVNamespace
-  GITHUB_TOKEN: string
+  GITHUB_TOKEN?: string
 }
 
 export default {
@@ -36,11 +36,6 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     userAgent: request.headers.get('User-Agent'),
     cfRay: request.headers.get('CF-Ray')
   }));
-
-  // Validate required environment variables
-  if (!env.GITHUB_TOKEN) {
-    throw new Error('GITHUB_TOKEN environment variable is required but not found')
-  }
 
   const url = new URL(request.url)
   const cacheControl = request.headers.get('X-Cache-Control') as CacheControlValue
@@ -99,7 +94,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       headers: Object.fromEntries(request.headers),
     }));
     // Force refresh: skip cache and discover services
-    serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
+    serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN || '')
     // Cache all results for 24 hours to reduce writes
     const expirationTtl = 86400 // 24 hours for ALL results
     await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-refresh', { expirationTtl })
@@ -110,7 +105,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
     if (!serviceType) {
       // Cache miss: discover and cache services with coalescing
-      serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
+      serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN || '')
       // Cache all results for 24 hours to reduce writes
       const expirationTtl = 86400 // 24 hours for ALL results
       await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-cache-miss', { expirationTtl })
@@ -118,7 +113,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   }
 
   // Route based on discovered/cached service availability
-  return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE, env.GITHUB_TOKEN)
+  return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE, env.GITHUB_TOKEN || '')
 }
 
 /**
@@ -216,7 +211,7 @@ async function handleRpcRequest(request: Request, url: URL): Promise<Response> {
 async function safeSitemapGeneration(
   kvNamespace: KVNamespace,
   forceRefresh: boolean,
-  githubToken: string,
+  githubToken: string | undefined,
   request?: any
   ): Promise<any[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
@@ -242,7 +237,7 @@ async function safeSitemapGeneration(
 async function handleSitemapXml(
   kvNamespace: KVNamespace,
   forceRefresh: boolean,
-  githubToken: string,
+  githubToken: string | undefined,
   request?: any
   ): Promise<Response> {
   try {
@@ -262,7 +257,7 @@ async function handleSitemapXml(
 async function handleSitemapJson(
   kvNamespace: KVNamespace,
   forceRefresh: boolean,
-  githubToken: string,
+  githubToken: string | undefined,
   request?: any
   ): Promise<Response> {
   try {
@@ -282,7 +277,7 @@ async function handleSitemapJson(
 async function safePluginMapGeneration(
   kvNamespace: KVNamespace,
   forceRefresh: boolean,
-  githubToken: string,
+  githubToken: string | undefined,
   request?: any
   ): Promise<any[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
@@ -308,7 +303,7 @@ async function safePluginMapGeneration(
 async function handlePluginMapXml(
   kvNamespace: KVNamespace,
   forceRefresh: boolean,
-  githubToken: string,
+  githubToken: string | undefined,
   request?: any
   ): Promise<Response> {
   try {
@@ -328,7 +323,7 @@ async function handlePluginMapXml(
 async function handlePluginMapJson(
   kvNamespace: KVNamespace,
   forceRefresh: boolean,
-  githubToken: string,
+  githubToken: string | undefined,
   request?: any
   ): Promise<Response> {
   try {
