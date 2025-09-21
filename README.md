@@ -2,6 +2,14 @@
 
 A high-performance Cloudflare Worker that intelligently routes requests from ubq.fi domains to either Deno Deploy or Cloudflare Pages, with dedicated plugin routing support for microservices.
 
+> 2025 Update (reliability + speed)
+> - Sticky routing via cookie (ubqpf=deno|pages) and Last‑Known‑Good (LKG) hints
+> - Memory‑first with sparse KV reads/writes (well within free tier)
+> - Fast fallbacks and hedged GET/HEAD on cold paths
+> - Admin endpoints to view/set/seed platform hints from GitHub discovery
+>
+> See: docs/routing-and-fallbacks.md, docs/kv-and-hints.md, docs/admin-and-ops.md
+
 ## 🎯 Overview
 
 This TypeScript-based Cloudflare Worker provides:
@@ -50,6 +58,11 @@ This TypeScript-based Cloudflare Worker provides:
 - **Cache Values**: Service availability (`"deno"`, `"pages"`, `"both"`, `"none"`)
 - **TTL Strategy**: 1 hour for existing services, 5 minutes for non-existent
 - **Negative Caching**: Prevents repeated failed discoveries
+
+### Sticky & Hint Strategy (Updated)
+- **Sticky Cookie**: `ubqpf=deno|pages` (24h). Browser sends it on all same‑origin asset requests, so CSS/JS fetch the correct upstream without probes.
+- **Last‑Known‑Good (LKG)**: In‑memory (1h per isolate) with KV persistence (30d) on change only. First cold request in an isolate may read KV once; otherwise zero KV.
+- **Admin Seeding**: Pre‑pin platforms from GitHub discovery to avoid cold‑edge fallbacks globally.
 
 ### Performance Features
 - **Parallel Discovery**: Checks both services simultaneously
@@ -175,6 +188,15 @@ curl -H "X-Cache-Control: refresh" https://os-command-config-main.ubq.fi
 
 # Clear entire cache
 curl -H "X-Cache-Control: clear-all" https://ubq.fi
+
+### Health & Admin Endpoints (New)
+- `GET /__health` → simple 200 JSON for uptime monitors
+- `GET /__platform?host=<host>` → current LKG platform (requires `X-Admin-Token`)
+- `POST /__platform?host=<host>&platform=deno|pages` → set platform hint (requires `X-Admin-Token`)
+- `DELETE /__platform?host=<host>` → clear hint (requires `X-Admin-Token`)
+- `GET /__seed-lkg?which=services|plugins|all` → pre‑pin platforms using GitHub discovery (requires `X-Admin-Token`)
+
+See docs/admin-and-ops.md and docs/endpoints.md for details.
 ```
 
 ## 🔧 Development Workflow

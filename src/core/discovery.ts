@@ -12,15 +12,47 @@ import { getKnownServices, getKnownPlugins } from '../utils'
  * Check if a deployment exists - handle network errors gracefully
  */
 export async function checkDeploymentExists(url: string): Promise<boolean> {
+  // More tolerant existence check: try HEAD first with short timeout,
+  // accept 2xx/3xx/401/403/405 as "exists"; fallback to GET on failure.
+  const HEAD_TIMEOUT_MS = 5000
+  const GET_TIMEOUT_MS = 5000
+
   try {
-    const response = await fetch(url, {
+    const headResp = await fetch(url, {
       method: 'HEAD',
-      signal: AbortSignal.timeout(15000)
+      redirect: 'manual',
+      signal: AbortSignal.timeout(HEAD_TIMEOUT_MS)
     })
-    // Only 2xx status codes indicate working services
-    return response.status >= 200 && response.status < 300
-  } catch (error) {
-    // Network errors, timeouts, DNS failures etc. mean service doesn't exist
+
+    if (
+      (headResp.status >= 200 && headResp.status < 400) ||
+      headResp.status === 401 ||
+      headResp.status === 403 ||
+      headResp.status === 405
+    ) {
+      return true
+    }
+
+    if (headResp.status === 404) {
+      return false
+    }
+    // For other statuses, fall through to GET
+  } catch {
+    // Ignore and try GET
+  }
+
+  try {
+    const getResp = await fetch(url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(GET_TIMEOUT_MS)
+    })
+    // Treat any non-5xx as existence; 5xx implies upstream down
+    if (getResp.status >= 200 && getResp.status < 500) {
+      return true
+    }
+    return false
+  } catch {
     return false
   }
 }
@@ -78,25 +110,28 @@ export async function discoverServiceType(subdomain: string, url: URL): Promise<
  * Discover plugin type - CRASH on any failures
  */
 export async function discoverPluginType(pluginName: string): Promise<ServiceType> {
-  // Check if plugin exists on Deno Deploy by testing manifest
-  const manifestUrl = `https://${pluginName}-main.deno.dev/manifest.json`
+  // Check both Deno and Pages
+  const denoManifestUrl = `https://${pluginName}-main.deno.dev/manifest.json`
+  const pagesUrl = `https://${pluginName}.pages.dev/`
 
-  try {
-    const response = await fetch(manifestUrl, {
-      method: 'GET',
-      signal: AbortSignal.timeout(15000)
-    })
-
-    if (response.ok) {
-      const manifest = await response.json() as PluginManifest
-      if (manifest.name && manifest.description) {
-        return "plugin-deno"
+  const [denoOk, pagesOk] = await Promise.all([
+    (async () => {
+      try {
+        const resp = await fetch(denoManifestUrl, { method: 'GET', signal: AbortSignal.timeout(5000) })
+        if (!resp.ok) return false
+        const manifest = await resp.json() as PluginManifest
+        return Boolean(manifest?.name && manifest?.description)
+      } catch {
+        return false
       }
-    }
-    return "plugin-none"
-  } catch (error) {
-    return "plugin-none"
-  }
+    })(),
+    checkDeploymentExists(pagesUrl)
+  ])
+
+  if (denoOk && pagesOk) return 'plugin-both'
+  if (denoOk) return 'plugin-deno'
+  if (pagesOk) return 'plugin-pages'
+  return 'plugin-none'
 }
 
 /**

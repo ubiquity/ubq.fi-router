@@ -5,6 +5,7 @@
 
 import { trackKVWrite } from '../analytics/write-tracker'
 import { kvGetWithFallback, kvPutWithFallback, kvDeleteWithFallback, kvListWithFallback } from '../utils/kv-fallback-wrapper'
+import { routeResolutionCache } from './memory-cache'
 
 export interface CacheConfig {
   ttlHours: number
@@ -150,9 +151,16 @@ export async function getCachedRoute(
   const key = generateRouteCacheKey(hostname, pathname)
 
   try {
+    // In-memory first
+    const mem = routeResolutionCache.get(key)
+    if (mem) {
+      return mem
+    }
+
     const cached = await getFromCache<RouteResolution>(kvNamespace, key, CACHE_CONFIGS.ROUTES)
     if (cached?.targetUrl) {
       console.log(`📦 Using cached route for '${hostname}${pathname}' -> '${cached.targetUrl}'`)
+      routeResolutionCache.set(key, cached.targetUrl)
       return cached.targetUrl
     }
     return null
@@ -180,6 +188,8 @@ export async function cacheRoute(
     }
 
     await putToCache(kvNamespace, key, resolution, CACHE_CONFIGS.ROUTES)
+    // Update in-memory too
+    routeResolutionCache.set(key, targetUrl)
     console.log(`💾 Cached route for '${hostname}${pathname}' -> '${targetUrl}'`)
   } catch (error) {
     console.warn(`Failed to cache route for '${hostname}${pathname}':`, error)

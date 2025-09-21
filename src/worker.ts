@@ -4,7 +4,7 @@
  */
 
 import type { ServiceType, CacheControlValue } from './types'
-import { getSubdomainKey } from './utils'
+import { getSubdomainKey, isPluginDomain } from './utils'
 import { coalesceDiscovery } from './service-discovery'
 import { routeRequest } from './routing'
 import { getCachedSitemapEntries } from './sitemap-discovery'
@@ -13,10 +13,14 @@ import { getCachedPluginMapEntries } from './plugin-map-discovery'
 import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
 import { rateLimitedKVWrite } from './utils/rate-limited-kv-write'
 import { kvGetWithFallback, kvDeleteWithFallback, kvListWithFallback } from './utils/kv-fallback-wrapper'
+import { routeServiceTypeCache } from './core/memory-cache'
+import { getLastKnownGoodPlatform, setLastKnownGoodPlatform, clearLastKnownGoodPlatform } from './core/last-known-good'
+import { discoverAllServices, discoverAllPlugins } from './core/discovery'
 
 interface Env {
   ROUTER_CACHE: KVNamespace
   GITHUB_TOKEN: string
+  ADMIN_TOKEN?: string
 }
 
 export default {
@@ -37,17 +41,31 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     cfRay: request.headers.get('CF-Ray')
   }));
 
-  // Validate required environment variables
-  if (!env.GITHUB_TOKEN) {
-    throw new Error('GITHUB_TOKEN environment variable is required but not found')
-  }
+  // Github token is optional for normal routing; required only for sitemap/plugin-map generation
 
   const url = new URL(request.url)
   const cacheControl = request.headers.get('X-Cache-Control') as CacheControlValue
 
+  // Lightweight health endpoint for monitoring
+  if (url.pathname === '/__health') {
+    return new Response(JSON.stringify({ status: 'ok', time: new Date().toISOString() }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+    })
+  }
+
   // Handle RPC requests early to avoid preflight issues
   if (url.pathname.startsWith('/rpc/')) {
     return await handleRpcRequest(request, url)
+  }
+
+  // Admin: platform pinning API
+  if (url.pathname === '/__platform') {
+    return await handlePlatformAdmin(request, env, url)
+  }
+
+  if (url.pathname === '/__seed-lkg') {
+    return await handleSeedLKG(request, env, url)
   }
 
   // Handle sitemap endpoints
@@ -100,25 +118,96 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }));
     // Force refresh: skip cache and discover services
     serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
-    // Cache all results for 24 hours to reduce writes
-    const expirationTtl = 86400 // 24 hours for ALL results
-    await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-refresh', { expirationTtl })
-  } else {
-    // Normal flow: check cache first
-    const cachedServiceType = await kvGetWithFallback(env.ROUTER_CACHE, cacheKey)
-    serviceType = cachedServiceType as ServiceType
-
-    if (!serviceType) {
-      // Cache miss: discover and cache services with coalescing
-      serviceType = await coalesceDiscovery(subdomain, url, env.ROUTER_CACHE, env.GITHUB_TOKEN)
-      // Cache all results for 24 hours to reduce writes
-      const expirationTtl = 86400 // 24 hours for ALL results
-      await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-cache-miss', { expirationTtl })
+    // Cache policy: do not cache negative results for long
+    const isNegative = serviceType === 'service-none' || serviceType === 'plugin-none'
+    const expirationTtl = isNegative ? 60 : 86400 // 1 minute for NONE, 24h otherwise
+    if (!isNegative) {
+      await rateLimitedKVWrite(env.ROUTER_CACHE, cacheKey, serviceType, 'route-refresh', { expirationTtl })
     }
+  } else {
+    // Normal flow: zero-KV hot path. Assume both platforms; routing logic will pick working backend.
+    const isPlugin = url.hostname.split('.')[0].startsWith('os-')
+    serviceType = (isPlugin ? 'plugin-both' : 'service-both') as ServiceType
   }
 
   // Route based on discovered/cached service availability
   return await routeRequest(request, url, subdomain, serviceType, env.ROUTER_CACHE, env.GITHUB_TOKEN)
+}
+
+async function handlePlatformAdmin(request: Request, env: Env, url: URL): Promise<Response> {
+  const adminToken = env.ADMIN_TOKEN || ''
+  const headerToken = request.headers.get('X-Admin-Token') || ''
+  if (!adminToken || headerToken !== adminToken) {
+    return new Response('Forbidden', { status: 403 })
+  }
+  const host = url.searchParams.get('host') || ''
+  if (!host || !(host === 'ubq.fi' || host.endsWith('.ubq.fi'))) {
+    return new Response('Missing or invalid host', { status: 400 })
+  }
+  const isPlugin = isPluginDomain(host)
+  const id = isPlugin ? host : getSubdomainKey(host)
+
+  if (request.method === 'GET') {
+    const lkg = await getLastKnownGoodPlatform(env.ROUTER_CACHE, isPlugin, id)
+    return json({ host, isPlugin, id, platform: lkg || null })
+  }
+  if (request.method === 'DELETE') {
+    await clearLastKnownGoodPlatform(env.ROUTER_CACHE, isPlugin, id)
+    return json({ host, cleared: true })
+  }
+  if (request.method === 'POST' || request.method === 'PUT') {
+    const platform = url.searchParams.get('platform')
+    if (platform !== 'deno' && platform !== 'pages') {
+      return new Response('platform must be deno|pages', { status: 400 })
+    }
+    await setLastKnownGoodPlatform(env.ROUTER_CACHE, isPlugin, id, platform)
+    return json({ host, isPlugin, id, platform, set: true })
+  }
+  return new Response('Method Not Allowed', { status: 405 })
+}
+
+function json(obj: any, status = 200): Response {
+  return new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+}
+
+async function handleSeedLKG(request: Request, env: Env, url: URL): Promise<Response> {
+  const adminToken = env.ADMIN_TOKEN || ''
+  const headerToken = request.headers.get('X-Admin-Token') || ''
+  if (!adminToken || headerToken !== adminToken) {
+    return new Response('Forbidden', { status: 403 })
+  }
+  const which = url.searchParams.get('which') || 'all'
+  const out: any = { which, services: { set: 0 }, plugins: { set: 0 } }
+  try {
+    if (which === 'services' || which === 'all') {
+      const svcMap = await discoverAllServices(env.ROUTER_CACHE, env.GITHUB_TOKEN)
+      for (const [sub, type] of svcMap) {
+        let platform: 'deno' | 'pages' | null = null
+        if (type === 'service-deno') platform = 'deno'
+        else if (type === 'service-pages' || type === 'service-both') platform = 'pages'
+        if (platform) {
+          await setLastKnownGoodPlatform(env.ROUTER_CACHE, false, sub, platform)
+          out.services.set++
+        }
+      }
+    }
+    if (which === 'plugins' || which === 'all') {
+      const plugMap = await discoverAllPlugins(env.ROUTER_CACHE, env.GITHUB_TOKEN)
+      for (const [plugin, { serviceType } ] of plugMap) {
+        let platform: 'deno' | 'pages' | null = null
+        if (serviceType === 'plugin-deno' || serviceType === 'plugin-both') platform = 'deno'
+        else if (serviceType === 'plugin-pages') platform = 'pages'
+        if (platform) {
+          const host = `os-${plugin}.ubq.fi`
+          await setLastKnownGoodPlatform(env.ROUTER_CACHE, true, host, platform)
+          out.plugins.set++
+        }
+      }
+    }
+    return json(out)
+  } catch (e: any) {
+    return json({ error: e?.message || String(e), partial: out }, 500)
+  }
 }
 
 /**
@@ -251,8 +340,15 @@ async function handleSitemapXml(
     return createXmlResponse(xmlContent)
   } catch (error) {
     console.error('Critical error in XML sitemap handler:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    return new Response(`Sitemap XML error: ${errorMessage}`, { status: 500 })
+    // Attempt to serve last cached content as a best-effort fallback
+    try {
+      const entries = await getCachedSitemapEntries(kvNamespace, false, githubToken, request)
+      const xmlContent = generateXmlSitemap(entries)
+      return createXmlResponse(xmlContent)
+    } catch {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return new Response(`Sitemap XML error: ${errorMessage}`, { status: 503 })
+    }
   }
 }
 
@@ -271,8 +367,15 @@ async function handleSitemapJson(
     return createJsonResponse(jsonContent)
   } catch (error) {
     console.error('Critical error in JSON sitemap handler:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    return new Response(`Sitemap JSON error: ${errorMessage}`, { status: 500 })
+    // Attempt to serve last cached content as a best-effort fallback
+    try {
+      const entries = await getCachedSitemapEntries(kvNamespace, false, githubToken, request)
+      const jsonContent = generateJsonSitemap(entries)
+      return createJsonResponse(jsonContent)
+    } catch {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return new Response(`Sitemap JSON error: ${errorMessage}`, { status: 503 })
+    }
   }
 }
 
@@ -317,8 +420,15 @@ async function handlePluginMapXml(
     return createXmlPluginMapResponse(xmlContent)
   } catch (error) {
     console.error('Critical error in XML plugin-map handler:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    return new Response(`Plugin-map XML error: ${errorMessage}`, { status: 500 })
+    // Attempt to serve last cached content as a best-effort fallback
+    try {
+      const entries = await getCachedPluginMapEntries(kvNamespace, false, githubToken, request)
+      const xmlContent = generateXmlPluginMap(entries)
+      return createXmlPluginMapResponse(xmlContent)
+    } catch {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return new Response(`Plugin-map XML error: ${errorMessage}`, { status: 503 })
+    }
   }
 }
 
@@ -337,7 +447,14 @@ async function handlePluginMapJson(
     return createJsonPluginMapResponse(jsonContent)
   } catch (error) {
     console.error('Critical error in JSON plugin-map handler:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    return new Response(`Plugin-map JSON error: ${errorMessage}`, { status: 500 })
+    // Attempt to serve last cached content as a best-effort fallback
+    try {
+      const entries = await getCachedPluginMapEntries(kvNamespace, false, githubToken, request)
+      const jsonContent = generateJsonPluginMap(entries, new Date().toISOString())
+      return createJsonPluginMapResponse(jsonContent)
+    } catch {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return new Response(`Plugin-map JSON error: ${errorMessage}`, { status: 503 })
+    }
   }
 }
