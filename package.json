@@ -7,6 +7,7 @@
     "build": "esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --target=es2022",
     "dev": "wrangler dev",
     "deploy": "bun run build && wrangler deploy",
+    "postdeploy:verify": "bun scripts/post-deploy-verify.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "type-check": "tsc --noEmit",
