@@ -184,7 +184,8 @@ async function handleSeedLKG(request: Request, env: Env, url: URL): Promise<Resp
       for (const [sub, type] of svcMap) {
         let platform: 'deno' | 'pages' | null = null
         if (type === 'service-deno') platform = 'deno'
-        else if (type === 'service-pages' || type === 'service-both') platform = 'pages'
+        else if (type === 'service-pages') platform = 'pages'
+        else if (type === 'service-both') platform = 'deno' // prefer Deno when both exist
         if (platform) {
           await setLastKnownGoodPlatform(env.ROUTER_CACHE, false, sub, platform)
           out.services.set++

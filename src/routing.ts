@@ -24,7 +24,7 @@ export async function routeRequest(request: Request, url: URL, subdomain: string
   switch (serviceType) {
     case "service-deno": {
       // Prefer Deno; fallback to Pages on 404/5xx/errors
-      const denoFirst = primary ? primary === 'deno' : false
+      const denoFirst = primary ? primary === 'deno' : true
       let firstUrl = denoFirst ? buildDenoUrl(subdomain, url) : buildPagesUrl(subdomain, url)
       let secondUrl = denoFirst ? buildPagesUrl(subdomain, url) : buildDenoUrl(subdomain, url)
       // Avoid suppressed platform as primary when possible
@@ -95,7 +95,7 @@ export async function routeRequest(request: Request, url: URL, subdomain: string
 
     case "service-both": {
       // Try with hedging when no primary; otherwise prefer primary and fallback
-      const denoFirst = primary ? primary === 'deno' : false
+      const denoFirst = primary ? primary === 'deno' : true
       let firstUrl = denoFirst ? buildDenoUrl(subdomain, url) : buildPagesUrl(subdomain, url)
       let secondUrl = denoFirst ? buildPagesUrl(subdomain, url) : buildDenoUrl(subdomain, url)
 
