@@ -94,4 +94,3 @@ async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Pro
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
 }
-
