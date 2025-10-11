@@ -16,8 +16,8 @@ Entry point: `src/worker.ts` (module worker).
 ## Routing Rules
 
 - Services
-  - `ubq.fi` → `https://ubq-fi.deno.dev`
-  - `<sub>.ubq.fi` → `https://<sub>-ubq-fi.deno.dev`
+- `ubq.fi` → `https://ubq-fi.deno.dev`
+- `<sub>.ubq.fi` → `https://<sub>-ubq-fi.deno.dev`
 - Plugins (`os-*.ubq.fi`)
   - `os-<plugin>.ubq.fi` → `<plugin>-main.deno.dev`
   - `os-<plugin>-main.ubq.fi` → `<plugin>-main.deno.dev`
@@ -30,6 +30,7 @@ Entry point: `src/worker.ts` (module worker).
 - Routes are managed in the Cloudflare dashboard; `wrangler.toml` does not attach routes.
 - We do not persist any state (no KV, no LKG, no admin endpoints).
 - Upstream headers/status are passed through; we strip host/origin/referer/cookie to upstream.
+
 
 ## 🔧 Development Workflow
 

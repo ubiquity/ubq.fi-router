@@ -3,37 +3,21 @@ import { isPluginDomain } from "./is-plugin-domain"
 /**
  * Get plugin name from hostname
  */
-export async function getPluginName(hostname: string, kvNamespace: any, githubToken: string): Promise<string> {
+export function getPluginName(hostname: string): string {
   if (!isPluginDomain(hostname)) {
     throw new Error('Not a plugin domain')
   }
 
   const fullName = hostname.split('.')[0]
+  const baseName = fullName.substring(3) // remove 'os-'
 
-  // Extract base name and branch suffix
-  const baseName = fullName.substring(3) // Remove 'os-'
-  let pluginName: string
-  let branch: string
-
-  // Check for explicit branch suffixes
   if (baseName.endsWith('-development')) {
-    pluginName = baseName.replace(/-development$/, '')
-    branch = 'development'
+    return baseName // already suffixed
   } else if (baseName.endsWith('-dev')) {
-    // Handle -dev alias for development
-    pluginName = baseName.replace(/-dev$/, '')
-    branch = 'development'
+    return `${baseName.replace(/-dev$/, '')}-development`
   } else if (baseName.endsWith('-main')) {
-    // Handle explicit -main suffix
-    pluginName = baseName.replace(/-main$/, '')
-    branch = 'main'
-  } else {
-    // No suffix = production alias (append -main)
-    pluginName = baseName
-    branch = 'main'
+    return baseName
   }
-
-  // Return plugin name with branch suffix - no GitHub API validation required
-  // The actual validation happens when checking the manifest endpoint
-  return `${pluginName}-${branch}`
+  // No suffix = production alias
+  return `${baseName}-main`
 }
