@@ -1,6 +1,4 @@
 import { isPluginDomain } from "./is-plugin-domain"
-import { getKnownPlugins } from "./get-known-plugins"
-import { findBasePlugin } from "./find-base-plugin"
 
 /**
  * Get plugin name from hostname
