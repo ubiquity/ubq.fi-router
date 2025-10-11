@@ -1,203 +1,36 @@
-# UBQ.FI Router - TypeScript Cloudflare Worker
+# UBQ.FI Router — Cloudflare Worker → Deno Apps
 
-A high-performance Cloudflare Worker that intelligently routes requests from ubq.fi domains to either Deno Deploy or Cloudflare Pages, with dedicated plugin routing support for microservices.
+A minimal Cloudflare Worker that deterministically routes ubq.fi traffic to Deno Deploy apps. No KV, no discovery, no sticky cookies, and no Cloudflare Pages fallback. The `/rpc/:chainId` path is exposed same‑origin per domain and proxied to `https://rpc.ubq.fi` to keep CORS simple.
 
-> 2025 Update (reliability + speed)
-> - Sticky routing via cookie (ubqpf=deno|pages) and Last‑Known‑Good (LKG) hints
-> - Memory‑first with sparse KV reads/writes (well within free tier)
-> - Fast fallbacks and hedged GET/HEAD on cold paths
-> - Admin endpoints to view/set/seed platform hints from GitHub discovery
->
-> See: docs/routing-and-fallbacks.md, docs/kv-and-hints.md, docs/admin-and-ops.md
+See docs/deno-only-simplification.md for the URL mapping rules; we use those rules but keep the Cloudflare Worker as the single front‑door.
 
-## 🎯 Overview
+## Quick Start (Cloudflare Worker)
 
-This TypeScript-based Cloudflare Worker provides:
-- **Intelligent Routing**: Automatically routes requests to available services
-- **Plugin System**: Dedicated `os-*.ubq.fi` routing for plugin microservices with production aliases
-- **Service Discovery**: Automatic detection with manifest validation for plugins
-- **Dynamic Sitemaps**: Generates XML and JSON sitemaps with automatic service discovery
-- **Performance Optimization**: Request coalescing, parallel discovery, and streaming responses
-- **Advanced Caching**: KV-based service discovery caching with intelligent TTL
-- **Professional Development**: Full TypeScript setup with modular architecture
-- **Debug-Friendly**: Comprehensive cache control and monitoring capabilities
+Prerequisites: Wrangler CLI authenticated to your Cloudflare account.
 
-## 🏗️ Architecture
+- Dev: `npm run cf:dev` (or `wrangler dev`)
+- Deploy: `npm run cf:deploy` (or `wrangler deploy`)
 
-### Service Priority
-1. **Deno Deploy** (Primary) - `*.deno.dev`
-2. **Cloudflare Pages** (Fallback) - `*.pages.dev`
-3. **Plugins** (Direct) - `os-*.ubq.fi` → `*.deno.dev`
+Entry point: `src/worker.ts` (module worker).
 
-### URL Mapping Examples
+## Routing Rules
 
-#### Standard Services (with fallback)
-| Domain | Target Service |
-|--------|----------------|
-| `ubq.fi` | `ubq-fi.deno.dev` (fallback: `ubq-fi.pages.dev`) |
-| `pay.ubq.fi` | `pay-ubq-fi.deno.dev` (fallback: `pay-ubq-fi.pages.dev`) |
+- Services
+- `ubq.fi` → `https://ubq-fi.deno.dev`
+- `<sub>.ubq.fi` → `https://<sub>-ubq-fi.deno.dev`
+- Plugins (`os-*.ubq.fi`)
+  - `os-<plugin>.ubq.fi` → `<plugin>-main.deno.dev`
+  - `os-<plugin>-main.ubq.fi` → `<plugin>-main.deno.dev`
+  - `os-<plugin>-dev[elopment].ubq.fi` → `<plugin>-development.deno.dev`
+- RPC (same origin)
+  - `/rpc/:chainId` → proxied to `https://rpc.ubq.fi/:chainId`
 
-#### Plugin Services (direct routing)
-| Domain | Target Service | Notes |
-|--------|----------------|-------|
-| `os-command-config.ubq.fi` | `command-config-main.deno.dev` | Production alias |
-| `os-command-config-main.ubq.fi` | `command-config-main.deno.dev` | Explicit main |
-| `os-command-config-dev.ubq.fi` | `command-config-dev.deno.dev` | Development |
-| `os-pricing-calculator-feature-ui.ubq.fi` | `pricing-calculator-feature-ui.deno.dev` | Feature branch |
+## Notes
 
-### Plugin Routing System
-- **Pattern**: `os-{plugin-name}-{deployment}.ubq.fi` → `{plugin-name}-{deployment}.deno.dev`
-- **Production Alias**: `os-{plugin-name}.ubq.fi` automatically routes to `{plugin-name}-main.deno.dev`
-- **Discovery**: Validates plugin existence via `/manifest.json` endpoint
-- **Direct Routing**: No fallback - plugins must exist on Deno Deploy
-- **Validation**: Checks for valid JSON manifest with required `name` and `description` fields
-- **SSL Support**: Uses existing `*.ubq.fi` SSL certificate (zero-cost solution)
+- Routes are managed in the Cloudflare dashboard; `wrangler.toml` does not attach routes.
+- We do not persist any state (no KV, no LKG, no admin endpoints).
+- Upstream headers/status are passed through; we strip host/origin/referer/cookie to upstream.
 
-### Caching Strategy
-- **Cache Keys**: Based on subdomain patterns (`"pay"`, `""`)
-- **Cache Values**: Service availability (`"deno"`, `"pages"`, `"both"`, `"none"`)
-- **TTL Strategy**: 1 hour for existing services, 5 minutes for non-existent
-- **Negative Caching**: Prevents repeated failed discoveries
-
-### Sticky & Hint Strategy (Updated)
-- **Sticky Cookie**: `ubqpf=deno|pages` (24h). Browser sends it on all same‑origin asset requests, so CSS/JS fetch the correct upstream without probes.
-- **Last‑Known‑Good (LKG)**: In‑memory (1h per isolate) with KV persistence (30d) on change only. First cold request in an isolate may read KV once; otherwise zero KV.
-- **Admin Seeding**: Pre‑pin platforms from GitHub discovery to avoid cold‑edge fallbacks globally.
-
-### Performance Features
-- **Parallel Discovery**: Checks both services simultaneously
-- **Request Coalescing**: Prevents duplicate discoveries for same subdomain
-- **Streaming Responses**: No buffering for optimal performance
-- **Intelligent Fallback**: Deno Deploy → Cloudflare Pages → 404
-
-## 🚀 Quick Start
-
-### Prerequisites
-- [Bun](https://bun.sh/) runtime
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
-- Cloudflare account with Workers and KV access
-
-### Installation
-```bash
-# Clone and install
-bun install
-
-# Configure KV namespace in wrangler.toml
-# (Update with your actual KV namespace IDs)
-
-# Build and deploy
-bun run deploy
-```
-
-## 📋 Commands Reference
-
-| Command | Description |
-|---------|-------------|
-| `bun run build` | Build TypeScript to JavaScript |
-| `bun run type-check` | TypeScript type checking |
-| `bun run dev` | Local development server |
-| `bun run deploy` | Build and deploy to Cloudflare |
-
-## 🗂️ Project Structure
-
-```
-src/
-├── worker.ts              # Main worker entry point
-├── types.ts              # TypeScript type definitions
-├── utils.ts              # URL building utilities
-├── service-discovery.ts  # Service discovery logic
-└── routing.ts           # Request routing and proxying
-
-dist/                     # Built output (auto-generated)
-├── worker.js            # Bundled worker
-
-docs/                     # Documentation
-├── architecture.md      # System architecture details
-├── api-reference.md     # API and cache control reference
-├── troubleshooting.md   # Common issues and solutions
-└── deployment.md        # Deployment guide
-```
-
-## ⚙️ Configuration
-
-### wrangler.toml
-```toml
-name = "ubq-fi-router"
-main = "dist/worker.js"
-compatibility_date = "2023-12-01"
-
-[[kv_namespaces]]
-binding = "ROUTER_CACHE"
-id = "your-kv-namespace-id-here"
-preview_id = "your-preview-kv-namespace-id-here"
-
-[build]
-command = "bun run build"
-```
-
-### Environment Variables
-- **ROUTER_CACHE**: KV namespace binding for caching
-
-## 🗺️ Dynamic Sitemap Generation
-
-The router automatically generates comprehensive sitemaps for all active services and plugins:
-
-### Sitemap Endpoints
-- **XML Sitemap**: `https://ubq.fi/sitemap.xml` - Standard format for search engines
-- **JSON Sitemap**: `https://ubq.fi/sitemap.json` - Machine-readable format for interoperability
-
-### Features
-- **Auto-Discovery**: Finds all active services and plugins across the ecosystem
-- **Rich Metadata**: Includes GitHub repositories, plugin manifests, and priorities
-- **Smart Caching**: 6-hour cache with force refresh support
-- **SEO Optimized**: Proper priority ranking and change frequency
-
-### Usage
-```bash
-# Get XML sitemap
-curl https://ubq.fi/sitemap.xml
-
-# Get JSON sitemap  
-curl https://ubq.fi/sitemap.json
-
-# Force refresh sitemap
-curl -H "X-Cache-Control: refresh" https://ubq.fi/sitemap.xml
-```
-
-See [docs/sitemap.md](docs/sitemap.md) for detailed documentation.
-
-## 🎛️ Cache Control API
-
-### Headers
-| Header Value | Action |
-|--------------|--------|
-| `X-Cache-Control: refresh` | Bypass cache and rediscover services |
-| `X-Cache-Control: clear` | Remove single cache entry |
-| `X-Cache-Control: clear-all` | Remove ALL cache entries |
-
-### Usage Examples
-```bash
-# Refresh single service discovery
-curl -H "X-Cache-Control: refresh" https://pay.ubq.fi
-
-# Clear specific cache entry
-curl -H "X-Cache-Control: clear" https://blog.ubq.fi
-
-# Test plugin routing
-curl -H "X-Cache-Control: refresh" https://os-command-config-main.ubq.fi
-
-# Clear entire cache
-curl -H "X-Cache-Control: clear-all" https://ubq.fi
-
-### Health & Admin Endpoints (New)
-- `GET /__health` → simple 200 JSON for uptime monitors
-- `GET /__platform?host=<host>` → current LKG platform (requires `X-Admin-Token`)
-- `POST /__platform?host=<host>&platform=deno|pages` → set platform hint (requires `X-Admin-Token`)
-- `DELETE /__platform?host=<host>` → clear hint (requires `X-Admin-Token`)
-- `GET /__seed-lkg?which=services|plugins|all` → pre‑pin platforms using GitHub discovery (requires `X-Admin-Token`)
-
-See docs/admin-and-ops.md and docs/endpoints.md for details.
-```
 
 ## 🔧 Development Workflow
 
