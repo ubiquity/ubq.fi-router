@@ -65,15 +65,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy to Cloudflare Workers
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.20.3"
           command: deploy
-
-      - name: Skip deploy (missing secret)
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN == '' }}
-        run: |
-          echo "CLOUDFLARE_API_TOKEN secret not set; skipping deploy."
-          echo "Add the secret in GitHub → Settings → Secrets and variables → Actions."
