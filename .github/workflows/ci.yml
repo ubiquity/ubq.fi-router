@@ -69,4 +69,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.20.3"
+          preCommands: wrangler whoami
           command: deploy
