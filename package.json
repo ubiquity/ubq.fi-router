@@ -11,6 +11,7 @@
     "test": "echo 'No tests defined yet'"
   },
   "devDependencies": {
+    "typescript": "^5.9.3",
     "wrangler": "^4.20.3"
   }
 }
