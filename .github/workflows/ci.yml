@@ -28,7 +28,7 @@ jobs:
     - name: Run tests
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: bun test
+      run: bun run test
 
   build:
     runs-on: ubuntu-latest
