@@ -62,6 +62,16 @@ bun run deploy
 
 ## 📊 Monitoring
 
+### Worker Logs (Host-aware)
+- The Worker emits structured JSON logs for each request, including `inHost` (derived from URL) and `hostHeader` (raw `Host` header), plus `path`, `status`, `ms`, and `cfRay`.
+- In Cloudflare Workers Observability → Logs, filter by host using substring search, for example:
+  - `"hostHeader":"devpool.directory"`
+  - or `"inHost":"work.ubq.fi"`
+- Events:
+  - `event: "route"` for successful proxy/rpc requests
+  - `event: "route_error"` on upstream failures
+  - `event: "health"` for `GET /__health`
+
 ### KV Cache Inspection
 Check your Cloudflare KV namespace for cache entries:
 - Keys follow pattern: `route:{subdomain}`

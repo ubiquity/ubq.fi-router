@@ -16,6 +16,17 @@ export default {
     const url = new URL(request.url)
 
     if (url.pathname === '/__health') {
+      try {
+        console.log(JSON.stringify({
+          event: 'health',
+          t: new Date().toISOString(),
+          method: request.method,
+          inHost: url.hostname,
+          hostHeader: request.headers.get('host') || undefined,
+          path: url.pathname,
+          cfRay: request.headers.get('cf-ray') || undefined,
+        }))
+      } catch {}
       return json({ status: 'ok', time: new Date().toISOString() })
     }
 
@@ -23,12 +34,51 @@ export default {
       return handleRpc(request, url)
     }
 
-    const isPlugin = isPluginDomain(url.hostname)
+    const inHost = url.hostname
+    const isPlugin = isPluginDomain(inHost)
+    const subKey = getSubdomainKey(inHost)
     const target = isPlugin
-      ? buildPluginUrl(url.hostname, url)
-      : buildDenoUrl(getSubdomainKey(url.hostname), url)
+      ? buildPluginUrl(inHost, url)
+      : buildDenoUrl(subKey, url)
 
-    return proxy(request, target)
+    const started = Date.now()
+    try {
+      const res = await proxy(request, target)
+      try {
+        const log = {
+          t: new Date().toISOString(),
+          route: isPlugin ? 'plugin' : 'deno',
+          method: request.method,
+          inHost,
+          hostHeader: request.headers.get('host') || undefined,
+          path: url.pathname,
+          hasQuery: url.search.length > 0,
+          target,
+          targetHost: new URL(target).hostname,
+          status: res.status,
+          ms: Date.now() - started,
+          workIncoming: inHost === 'work.ubq.fi',
+          workTarget: !isPlugin && subKey === 'work',
+          cfRay: request.headers.get('cf-ray') || undefined,
+        }
+        // Structured JSON log for easy filtering in Workers Logs
+        console.log(JSON.stringify({ event: 'route', ...log }))
+      } catch {}
+      return res
+    } catch (err) {
+      console.error(JSON.stringify({
+        event: 'route_error',
+        t: new Date().toISOString(),
+        route: isPlugin ? 'plugin' : 'deno',
+        method: request.method,
+        inHost,
+        hostHeader: request.headers.get('host') || undefined,
+        path: url.pathname,
+        target,
+        message: err instanceof Error ? err.message : String(err)
+      }))
+      return new Response('Upstream error', { status: 502 })
+    }
   }
 }
 
@@ -71,11 +121,30 @@ async function handleRpc(request: Request, url: URL): Promise<Response> {
     body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
     redirect: 'manual'
   }
+  const started = Date.now()
   const resp = await fetch(new Request(targetUrl, init))
   const outHeaders = new Headers(resp.headers)
   outHeaders.set('Access-Control-Allow-Origin', '*')
   outHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
   outHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+  try {
+    const log = {
+      t: new Date().toISOString(),
+      route: 'rpc',
+      method: request.method,
+      inHost: new URL(request.url).hostname,
+      hostHeader: request.headers.get('host') || undefined,
+      path: url.pathname,
+      hasQuery: url.search.length > 0,
+      target: targetUrl,
+      targetHost: 'rpc.ubq.fi',
+      status: resp.status,
+      ms: Date.now() - started,
+      workIncoming: new URL(request.url).hostname === 'work.ubq.fi',
+      cfRay: request.headers.get('cf-ray') || undefined,
+    }
+    console.log(JSON.stringify({ event: 'route', ...log }))
+  } catch {}
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders })
 }
 
