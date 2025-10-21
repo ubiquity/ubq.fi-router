@@ -9,29 +9,63 @@ import { isPluginDomain } from './utils/is-plugin-domain'
 import { buildDenoUrl } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
 
-export interface Env {}
+export interface Env {
+  // Optional env vars to control logging without code changes
+  LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
+  LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
+  LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
+}
+
+type LogKind = 'route' | 'rpc' | 'health'
+
+function parseRate(value: string | undefined, fallback = 0): number {
+  const n = Number(value)
+  if (Number.isFinite(n)) return Math.min(1, Math.max(0, n))
+  return fallback
+}
+
+function debugRequested(request: Request, url: URL): boolean {
+  const hdr = request.headers.get('x-debug-log')?.toLowerCase()
+  const qp = url.searchParams.get('__log')?.toLowerCase()
+  return hdr === '1' || hdr === 'true' || qp === '1' || qp === 'true'
+}
+
+function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean {
+  // Always allow explicit on-demand debugging via header or query param
+  if (debugRequested(request, url)) return true
+  switch (kind) {
+    case 'rpc':
+      return Math.random() < parseRate(env.LOG_RPC_SAMPLE, 0)
+    case 'health':
+      return Math.random() < parseRate(env.LOG_HEALTH_SAMPLE, 0)
+    default:
+      return Math.random() < parseRate(env.LOG_ROUTE_SAMPLE, 0)
+  }
+}
 
 export default {
-  async fetch(request: Request, _env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
 
     if (url.pathname === '/__health') {
-      try {
-        console.log(JSON.stringify({
-          event: 'health',
-          t: new Date().toISOString(),
-          method: request.method,
-          inHost: url.hostname,
-          hostHeader: request.headers.get('host') || undefined,
-          path: url.pathname,
-          cfRay: request.headers.get('cf-ray') || undefined,
-        }))
-      } catch {}
+      if (shouldLog('health', request, url, env)) {
+        try {
+          console.log(JSON.stringify({
+            event: 'health',
+            t: new Date().toISOString(),
+            method: request.method,
+            inHost: url.hostname,
+            hostHeader: request.headers.get('host') || undefined,
+            path: url.pathname,
+            cfRay: request.headers.get('cf-ray') || undefined,
+          }))
+        } catch {}
+      }
       return json({ status: 'ok', time: new Date().toISOString() })
     }
 
     if (url.pathname.startsWith('/rpc/')) {
-      return handleRpc(request, url)
+      return handleRpc(request, url, env)
     }
 
     const inHost = url.hostname
@@ -44,26 +78,28 @@ export default {
     const started = Date.now()
     try {
       const res = await proxy(request, target)
-      try {
-        const log = {
-          t: new Date().toISOString(),
-          route: isPlugin ? 'plugin' : 'deno',
-          method: request.method,
-          inHost,
-          hostHeader: request.headers.get('host') || undefined,
-          path: url.pathname,
-          hasQuery: url.search.length > 0,
-          target,
-          targetHost: new URL(target).hostname,
-          status: res.status,
-          ms: Date.now() - started,
-          workIncoming: inHost === 'work.ubq.fi',
-          workTarget: !isPlugin && subKey === 'work',
-          cfRay: request.headers.get('cf-ray') || undefined,
-        }
-        // Structured JSON log for easy filtering in Workers Logs
-        console.log(JSON.stringify({ event: 'route', ...log }))
-      } catch {}
+      if (shouldLog('route', request, url, env)) {
+        try {
+          const log = {
+            t: new Date().toISOString(),
+            route: isPlugin ? 'plugin' : 'deno',
+            method: request.method,
+            inHost,
+            hostHeader: request.headers.get('host') || undefined,
+            path: url.pathname,
+            hasQuery: url.search.length > 0,
+            target,
+            targetHost: new URL(target).hostname,
+            status: res.status,
+            ms: Date.now() - started,
+            workIncoming: inHost === 'work.ubq.fi',
+            workTarget: !isPlugin && subKey === 'work',
+            cfRay: request.headers.get('cf-ray') || undefined,
+          }
+          // Structured JSON log for easy filtering in Workers Logs
+          console.log(JSON.stringify({ event: 'route', ...log }))
+        } catch {}
+      }
       return res
     } catch (err) {
       console.error(JSON.stringify({
@@ -89,7 +125,7 @@ function json(obj: unknown, status = 200): Response {
   })
 }
 
-async function handleRpc(request: Request, url: URL): Promise<Response> {
+async function handleRpc(request: Request, url: URL, env: Env): Promise<Response> {
   const parts = url.pathname.split('/')
   const chainId = parts[2]
   if (!chainId || !/^\d+$/.test(chainId)) {
@@ -127,24 +163,28 @@ async function handleRpc(request: Request, url: URL): Promise<Response> {
   outHeaders.set('Access-Control-Allow-Origin', '*')
   outHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
   outHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-  try {
-    const log = {
-      t: new Date().toISOString(),
-      route: 'rpc',
-      method: request.method,
-      inHost: new URL(request.url).hostname,
-      hostHeader: request.headers.get('host') || undefined,
-      path: url.pathname,
-      hasQuery: url.search.length > 0,
-      target: targetUrl,
-      targetHost: 'rpc.ubq.fi',
-      status: resp.status,
-      ms: Date.now() - started,
-      workIncoming: new URL(request.url).hostname === 'work.ubq.fi',
-      cfRay: request.headers.get('cf-ray') || undefined,
-    }
-    console.log(JSON.stringify({ event: 'route', ...log }))
-  } catch {}
+  // RPC traffic can be very high-volume; sample heavily by default.
+  if (shouldLog('rpc', request, url, env)) {
+    try {
+      const inHost = new URL(request.url).hostname
+      const log = {
+        t: new Date().toISOString(),
+        route: 'rpc',
+        method: request.method,
+        inHost,
+        hostHeader: request.headers.get('host') || undefined,
+        path: url.pathname,
+        hasQuery: url.search.length > 0,
+        target: targetUrl,
+        targetHost: 'rpc.ubq.fi',
+        status: resp.status,
+        ms: Date.now() - started,
+        workIncoming: inHost === 'work.ubq.fi',
+        cfRay: request.headers.get('cf-ray') || undefined,
+      }
+      console.log(JSON.stringify({ event: 'route', ...log }))
+    } catch {}
+  }
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders })
 }
 
