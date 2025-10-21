@@ -25,15 +25,10 @@ jobs:
     - name: Type check
       run: bun run type-check
 
-    - name: Run comprehensive validation tests
+    - name: Run tests
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: bun test tests/comprehensive-validation.test.ts
-
-    - name: Run all other tests
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: bun test --ignore tests/comprehensive-validation.test.ts
+      run: bun test
 
   build:
     runs-on: ubuntu-latest
