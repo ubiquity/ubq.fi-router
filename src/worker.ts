@@ -73,7 +73,9 @@ export default {
     const subKey = getSubdomainKey(inHost)
     const target = isPlugin
       ? buildPluginUrl(inHost, url)
-      : buildDenoUrl(subKey, url)
+      : subKey.startsWith('preview-')
+        ? buildPreviewUrl(subKey, url)
+        : buildDenoUrl(subKey, url)
 
     const started = Date.now()
     try {
@@ -202,4 +204,29 @@ async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Pro
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
+}
+
+function buildPreviewUrl(subKey: string, url: URL): string {
+  const base = subKey.replace(/^preview-/, '')
+  const project = buildPreviewProject(base)
+  return `https://${project}.deno.dev${url.pathname}${url.search}`
+}
+
+function buildPreviewProject(base: string): string {
+  // Keep total length <= 26: p- + base + -ubq-fi (2 + len + 7)
+  let name = base
+  if (name.length > 17) {
+    const hash = shortHash(name)
+    name = `${name.slice(0, 12)}-${hash}`
+  }
+  return `p-${name}-ubq-fi`
+}
+
+function shortHash(input: string): string {
+  // Lightweight deterministic hash, 4 hex chars
+  let h = 0
+  for (const ch of input) {
+    h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  }
+  return h.toString(16).padStart(4, '0').slice(0, 4)
 }
