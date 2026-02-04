@@ -2,21 +2,38 @@
  * UBQ.FI Router — Cloudflare Worker
  * Deterministic routing to Deno Deploy apps; /rpc is same‑origin proxy.
  * No KV, no discovery, no sticky cookies, no Pages fallback.
+ * Includes automatic version footer injection for downstream apps.
  */
 
+// These are injected at build time via wrangler.toml [vars] section
+declare const GIT_REVISION: string;
+declare const REPO_URL: string;
+
+// Import routing utilities
 import { getSubdomainKey } from './utils/get-subdomain-key'
 import { isPluginDomain } from './utils/is-plugin-domain'
 import { buildDenoUrl } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+
+// Import version footer utilities
+import { getAppVersion, initializeRegistry, preloadVersions } from './utils/app-registry'
+import {
+  shouldInjectFooter,
+  injectFooter,
+  getContentType,
+  isBodyModified,
+  markAsModified,
+} from './utils/html-injector'
 
 export interface Env {
   // Optional env vars to control logging without code changes
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
   LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
+  FOOTER_ENABLED?: string    // Enable/disable footer injection ('true' or 'false')
 }
 
-type LogKind = 'route' | 'rpc' | 'health'
+type LogKind = 'route' | 'rpc' | 'health' | 'footer'
 
 function parseRate(value: string | undefined, fallback = 0): number {
   const n = Number(value)
@@ -38,15 +55,28 @@ function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean
       return Math.random() < parseRate(env.LOG_RPC_SAMPLE, 0)
     case 'health':
       return Math.random() < parseRate(env.LOG_HEALTH_SAMPLE, 0)
+    case 'footer':
+      // Footer logs are verbose, log less frequently
+      return Math.random() < 0.01
     default:
       return Math.random() < parseRate(env.LOG_ROUTE_SAMPLE, 0)
   }
 }
 
+function isFooterEnabled(env: Env): boolean {
+  const footerEnabled = env.FOOTER_ENABLED?.toLowerCase()
+  return footerEnabled !== 'false'
+}
+
+// Initialize app registry
+initializeRegistry()
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+    await ensureVersionCacheInitialized()
 
+    // Health check endpoint
     if (url.pathname === '/__health') {
       if (shouldLog('health', request, url, env)) {
         try {
@@ -58,12 +88,28 @@ export default {
             hostHeader: request.headers.get('host') || undefined,
             path: url.pathname,
             cfRay: request.headers.get('cf-ray') || undefined,
+            version: GIT_REVISION,
           }))
         } catch {}
       }
-      return json({ status: 'ok', time: new Date().toISOString() })
+      return json({
+        status: 'ok',
+        time: new Date().toISOString(),
+        version: GIT_REVISION,
+        repo: REPO_URL,
+      })
     }
 
+    // Version info endpoint
+    if (url.pathname === '/__version') {
+      return json({
+        version: GIT_REVISION,
+        repo: REPO_URL,
+        apps: getAppVersion(url.hostname),
+      })
+    }
+
+    // RPC endpoint
     if (url.pathname.startsWith('/rpc/')) {
       return handleRpc(request, url, env)
     }
@@ -79,7 +125,7 @@ export default {
 
     const started = Date.now()
     try {
-      const res = await proxy(request, target)
+      const res = await proxy(request, target, inHost, env)
       if (shouldLog('route', request, url, env)) {
         try {
           const log = {
@@ -97,6 +143,7 @@ export default {
             workIncoming: inHost === 'work.ubq.fi',
             workTarget: !isPlugin && subKey === 'work',
             cfRay: request.headers.get('cf-ray') || undefined,
+            version: GIT_REVISION,
           }
           // Structured JSON log for easy filtering in Workers Logs
           console.log(JSON.stringify({ event: 'route', ...log }))
@@ -113,7 +160,9 @@ export default {
         hostHeader: request.headers.get('host') || undefined,
         path: url.pathname,
         target,
-        message: err instanceof Error ? err.message : String(err)
+        message: err instanceof Error ? err.message : String(err),
+        version: GIT_REVISION,
+        repo: REPO_URL,
       }))
       return new Response('Upstream error', { status: 502 })
     }
@@ -190,7 +239,39 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders })
 }
 
-async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Promise<Response> {
+// Version cache management
+let versionCacheInitialized = false;
+let versionCachePromise: Promise<void> | null = null;
+
+async function ensureVersionCacheInitialized(): Promise<void> {
+  if (versionCacheInitialized) return;
+  if (versionCachePromise) return versionCachePromise;
+
+  versionCachePromise = (async () => {
+    try {
+      await preloadVersions();
+    } catch (err) {
+      console.error(JSON.stringify({
+        event: 'version_cache_error',
+        t: new Date().toISOString(),
+        message: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      versionCacheInitialized = true;
+      versionCachePromise = null;
+    }
+  })();
+
+  return versionCachePromise;
+}
+
+async function proxy(
+  request: Request,
+  targetUrl: string,
+  inHost: string,
+  env: Env,
+  timeoutMs = 6000
+): Promise<Response> {
   const headers = new Headers()
   for (const [key, value] of request.headers.entries()) {
     const k = key.toLowerCase()
@@ -202,8 +283,81 @@ async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Pro
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     init.body = request.clone().body
   }
-  const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
+  
+  const resp = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
+
+  // Try to inject version footer for HTML responses
+  if (isFooterEnabled(env) && (request.method === 'GET' || request.method === 'HEAD')) {
+    const contentType = getContentType(resp.headers)
+    const shouldInject = shouldInjectFooter(contentType, resp.status, new URL(targetUrl).pathname)
+    
+    if (shouldInject && !isBodyModified(resp.headers)) {
+      try {
+        // Get version info for this app
+        const versionInfo = await getAppVersion(inHost)
+        
+        if (versionInfo) {
+          // Clone the response to read the body
+          const clonedResponse = resp.clone()
+          const body = await clonedResponse.text()
+          
+          // Check if footer already exists
+          if (body.includes('id="version-footer"')) {
+            if (shouldLog('footer', request, new URL(request.url), env)) {
+              console.log(JSON.stringify({
+                event: 'footer_skipped',
+                t: new Date().toISOString(),
+                inHost,
+                targetHost: new URL(targetUrl).hostname,
+                path: new URL(request.url).pathname,
+                reason: 'already_exists',
+              }))
+            }
+            return resp
+          }
+          
+          // Inject footer
+          const modifiedHtml = injectFooter(body, {
+            commitHash: versionInfo.commitHash,
+            repoUrl: versionInfo.repoUrl,
+          })
+          
+          const outHeaders = new Headers(resp.headers)
+          outHeaders.set('Content-Type', 'text/html; charset=utf-8')
+          markAsModified(outHeaders)
+          
+          if (shouldLog('footer', request, new URL(request.url), env)) {
+            console.log(JSON.stringify({
+              event: 'footer_injected',
+              t: new Date().toISOString(),
+              inHost,
+              targetHost: new URL(targetUrl).hostname,
+              path: new URL(request.url).pathname,
+              commitHash: versionInfo.commitHash.substring(0, 7),
+              fromCache: versionInfo.fromCache,
+            }))
+          }
+          
+          return new Response(modifiedHtml, {
+            status: resp.status,
+            statusText: resp.statusText,
+            headers: outHeaders,
+          })
+        }
+      } catch (err) {
+        // Footer injection failed, continue with original response
+        console.error(JSON.stringify({
+          event: 'footer_error',
+          t: new Date().toISOString(),
+          inHost,
+          targetHost: new URL(targetUrl).hostname,
+          message: err instanceof Error ? err.message : String(err),
+        }))
+      }
+    }
+  }
+
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: resp.headers })
 }
 
 function buildPreviewUrl(subKey: string, url: URL): string {
