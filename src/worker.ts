@@ -314,7 +314,7 @@ async function proxy(
                 reason: 'already_exists',
               }))
             }
-            return resp
+            return clonedResponse
           }
           
           // Inject footer

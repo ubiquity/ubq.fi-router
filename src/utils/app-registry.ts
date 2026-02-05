@@ -440,7 +440,7 @@ export async function getAppVersion(hostname: string): Promise<VersionResult | n
 
     if (appInfo.commit && appInfo.repoInfo) {
       const repoUrl = `https://github.com/${appInfo.repoInfo.owner}/${appInfo.repoInfo.repo}`;
-      const fromCache = now - appInfo.lastUpdated < 60000; // Cached within last minute
+      const fromCache = now - appInfo.lastUpdated >= 60000; // Stale data (cached for more than 1 minute)
 
       return {
         commitHash: appInfo.commit.sha,
@@ -478,7 +478,8 @@ function matchPattern(hostname: string): string | null {
   // Check wildcard patterns
   for (const pattern of appVersions.keys()) {
     if (pattern.includes('*')) {
-      const regex = new RegExp('^' + pattern.replace(/\*/g, '[^.]+') + '$');
+      const escaped = pattern.replace(/\./g, '\\.').replace(/\*/g, '[^.]+');
+      const regex = new RegExp('^' + escaped + '$');
       if (regex.test(hostname)) {
         return pattern;
       }
@@ -505,7 +506,7 @@ async function detectPluginVersion(pluginName: string, hostname: string): Promis
     }
   }
 
-  // Try common plugin repository patterns in parallel
+  // Try common plugin repository patterns in parallel with overall timeout
   const possibleRepos = [
     `https://github.com/ubiquity/${pluginName}`,
     `https://github.com/ubiquity-os/${pluginName}`,
@@ -525,24 +526,27 @@ async function detectPluginVersion(pluginName: string, hostname: string): Promis
     }
   });
 
-  const results = await Promise.all(fetchPromises);
-  const successfulResult = results.find(r => r !== null);
+  // Use Promise.any to get the first successful result with overall timeout
+  try {
+    const successfulResult = await Promise.any(fetchPromises);
+    if (successfulResult) {
+      // Register this plugin for future requests
+      registerApp({
+        pattern: hostname,
+        repoUrl: successfulResult.repoUrl,
+        autoDetect: false,
+      });
 
-  if (successfulResult) {
-    // Register this plugin for future requests
-    registerApp({
-      pattern: hostname,
-      repoUrl: successfulResult.repoUrl,
-      autoDetect: false,
-    });
-
-    return {
-      commitHash: successfulResult.commit.sha,
-      repoUrl: successfulResult.repoUrl,
-      pattern: hostname,
-      fromCache: false,
-      customText: appVersions.get(hostname)?.customText,
-    };
+      return {
+        commitHash: successfulResult.commit.sha,
+        repoUrl: successfulResult.repoUrl,
+        pattern: hostname,
+        fromCache: false,
+        customText: appVersions.get(hostname)?.customText,
+      };
+    }
+  } catch {
+    // All promises failed, continue to negative caching
   }
 
   // Cache negative result for future requests
