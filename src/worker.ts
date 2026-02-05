@@ -102,10 +102,11 @@ export default {
 
     // Version info endpoint
     if (url.pathname === '/__version') {
+      const app = await getAppVersion(url.hostname)
       return json({
         version: GIT_REVISION,
         repo: REPO_URL,
-        apps: getAppVersion(url.hostname),
+        apps: app,
       })
     }
 
@@ -287,7 +288,7 @@ async function proxy(
   const resp = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
 
   // Try to inject version footer for HTML responses
-  if (isFooterEnabled(env) && (request.method === 'GET' || request.method === 'HEAD')) {
+  if (isFooterEnabled(env) && request.method === 'GET') {
     const contentType = getContentType(resp.headers)
     const shouldInject = shouldInjectFooter(contentType, resp.status, new URL(targetUrl).pathname)
     
@@ -324,6 +325,10 @@ async function proxy(
           
           const outHeaders = new Headers(resp.headers)
           outHeaders.set('Content-Type', 'text/html; charset=utf-8')
+          // Remove stale headers that are now invalid after body modification
+          outHeaders.delete('content-encoding')
+          outHeaders.delete('content-length')
+          outHeaders.delete('etag')
           markAsModified(outHeaders)
           
           if (shouldLog('footer', request, new URL(request.url), env)) {

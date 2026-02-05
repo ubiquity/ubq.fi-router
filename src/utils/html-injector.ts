@@ -163,9 +163,9 @@ export function injectFooter(
     const beforeHtml = html.substring(0, position);
     const afterHtml = html.substring(position);
     
-    // Add opening body tag if missing, then footer
-    const bodyOpenHtml = '<body>\n' + footerHtml;
-    return beforeHtml + bodyOpenHtml + afterHtml;
+    // Add opening body tag if missing, then footer (properly closed)
+    const bodyWrappedHtml = `<body>\n${footerHtml}\n</body>\n`;
+    return beforeHtml + bodyWrappedHtml + afterHtml;
   }
 
   // If no suitable injection point found, append to end

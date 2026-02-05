@@ -7,6 +7,7 @@
 export interface GitHubRepoInfo {
   owner: string;
   repo: string;
+  ref?: string; // optional branch or commit
 }
 
 export interface GitHubCommitInfo {
@@ -36,14 +37,16 @@ export async function getLatestCommit(
   const cacheTtl = config.cacheTtl ?? DEFAULT_CACHE_TTL;
   const timeout = config.timeout ?? DEFAULT_TIMEOUT;
 
-  // Check cache first
-  const cacheKey = `${repoInfo.owner}/${repoInfo.repo}`;
+  const ref = repoInfo.ref;
+  const cacheKey = `${repoInfo.owner}/${repoInfo.repo}${ref ? `/${ref}` : ''}`;
   const cached = getFromCache(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const url = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/commits?per_page=1`;
+  const url =
+    `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/commits?per_page=1` +
+    (ref ? `&sha=${encodeURIComponent(ref)}` : '');
   
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github.v3+json',
@@ -113,10 +116,10 @@ export async function getLatestCommit(
  * Parse a GitHub URL into owner and repo
  */
 export function parseGitHubUrl(url: string): GitHubRepoInfo | null {
-  // Handle various GitHub URL formats
+  // Handle various GitHub URL formats including /tree/<branch> and /commit/<sha>
   const patterns = [
-    /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/,
-    /^git@github\.com:([^/]+)\/([^/]+)\.git$/,
+    /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\/(?:tree|commit)\/([^/]+))?\/?$/,
+    /^git@github\.com:([^/]+)\/([^/]+)(?:\.git)?$/,
     /^([^/]+)\/([^/]+)$/, // Short form: owner/repo
   ];
 
@@ -124,7 +127,7 @@ export function parseGitHubUrl(url: string): GitHubRepoInfo | null {
     const match = url.match(pattern);
     if (match) {
       const repo = match[2].replace(/\.git$/, '');
-      return { owner: match[1], repo };
+      return { owner: match[1], repo, ref: match[3] };
     }
   }
 

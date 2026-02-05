@@ -25,6 +25,7 @@ export interface AppVersionInfo {
   commit: GitHubCommitInfo | null;
   lastUpdated: number;
   skipFooter: boolean;
+  customText?: string;
 }
 
 export interface VersionResult {
@@ -32,6 +33,7 @@ export interface VersionResult {
   repoUrl: string;
   pattern: string;
   fromCache: boolean;
+  customText?: string;
 }
 
 // Known downstream applications registry
@@ -371,6 +373,7 @@ export function initializeRegistry(apps: AppConfig[] = DEFAULT_APPS): void {
       commit: null,
       lastUpdated: 0,
       skipFooter: app.skipFooter ?? false,
+      customText: app.customText,
     });
   }
 
@@ -389,6 +392,7 @@ export function registerApp(config: AppConfig): void {
     commit: null,
     lastUpdated: 0,
     skipFooter: config.skipFooter ?? false,
+    customText: config.customText,
   });
 }
 
@@ -443,6 +447,7 @@ export async function getAppVersion(hostname: string): Promise<VersionResult | n
         repoUrl,
         pattern: matchedPattern,
         fromCache,
+        customText: appInfo.customText,
       };
     }
   }
@@ -485,37 +490,69 @@ function matchPattern(hostname: string): string | null {
 
 
 /**
- * Attempt to auto-detect a plugin's version info
+ * Attempt to auto-detect a plugin's version info with parallel lookups and negative caching
  */
+const NEGATIVE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const REPO_TIMEOUT = 5000; // 5 seconds per repo
+
 async function detectPluginVersion(pluginName: string, hostname: string): Promise<VersionResult | null> {
-  // Try common plugin repository patterns
+  // Check negative cache first
+  const cached = appVersions.get(hostname);
+  if (cached && cached.commit === null) {
+    const now = Date.now();
+    if (now - cached.lastUpdated < NEGATIVE_CACHE_TTL) {
+      return null; // Still within negative cache TTL
+    }
+  }
+
+  // Try common plugin repository patterns in parallel
   const possibleRepos = [
     `https://github.com/ubiquity/${pluginName}`,
     `https://github.com/ubiquity-os/${pluginName}`,
     `https://github.com/ubiquity-os-marketplace/${pluginName}`,
   ];
 
-  for (const repoUrl of possibleRepos) {
+  // Create parallel fetch promises with individual timeouts
+  const fetchPromises = possibleRepos.map(async (repoUrl) => {
     const repoInfo = parseGitHubUrl(repoUrl);
-    if (!repoInfo) continue;
+    if (!repoInfo) return null;
 
-    const commit = await getLatestCommit(repoInfo);
-    if (commit) {
-      // Register this plugin for future requests
-      registerApp({
-        pattern: hostname,
-        repoUrl,
-        autoDetect: false,
-      });
-
-      return {
-        commitHash: commit.sha,
-        repoUrl,
-        pattern: hostname,
-        fromCache: false,
-      };
+    try {
+      const commit = await getLatestCommit(repoInfo, { timeout: REPO_TIMEOUT });
+      return commit ? { commit, repoInfo, repoUrl } : null;
+    } catch {
+      return null;
     }
+  });
+
+  const results = await Promise.all(fetchPromises);
+  const successfulResult = results.find(r => r !== null);
+
+  if (successfulResult) {
+    // Register this plugin for future requests
+    registerApp({
+      pattern: hostname,
+      repoUrl: successfulResult.repoUrl,
+      autoDetect: false,
+    });
+
+    return {
+      commitHash: successfulResult.commit.sha,
+      repoUrl: successfulResult.repoUrl,
+      pattern: hostname,
+      fromCache: false,
+      customText: appVersions.get(hostname)?.customText,
+    };
   }
+
+  // Cache negative result for future requests
+  appVersions.set(hostname, {
+    pattern: hostname,
+    repoInfo: null,
+    commit: null,
+    lastUpdated: Date.now(),
+    skipFooter: false,
+  });
 
   return null;
 }
