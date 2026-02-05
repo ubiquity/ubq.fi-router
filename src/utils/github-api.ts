@@ -51,7 +51,6 @@ export async function getLatestCommit(
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github.v3+json',
     'User-Agent': 'ubq-fi-router/1.0',
-    'Authorization': `Bearer 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`,
   };
 
   try {
