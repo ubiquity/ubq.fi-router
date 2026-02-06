@@ -3,7 +3,7 @@
  * Uses in-memory caching and static fallback
  */
 
-import type { SitemapEntry } from './sitemap-generator'
+import type { SitemapEntry, ServiceType } from './sitemap-generator'
 import { discoverAllServices, discoverAllPlugins } from './core/discovery'
 import { createSitemapEntry } from './sitemap-generator'
 
@@ -33,9 +33,22 @@ export async function discoverAllForSitemap(githubToken: string, generationTimes
   }
 
   // Convert plugins to sitemap entries
-  for (const [pluginName, { serviceType, manifest }] of pluginMap) {
+  for (const [pluginName, variants] of pluginMap) {
+    // Determine service type based on available variants
+    let serviceType: ServiceType
+    if (variants.main.available && variants.development.available) {
+      serviceType = 'plugin-both'
+    } else if (variants.main.available) {
+      serviceType = 'plugin-deno'
+    } else if (variants.development.available) {
+      serviceType = 'plugin-pages'
+    } else {
+      serviceType = 'plugin-none'
+    }
+
     const subdomain = `os-${pluginName}`
     const githubRepo = `ubiquity-os-marketplace/${pluginName}`
+    const manifest = variants.main.manifest || variants.development.manifest
     entries.push(createSitemapEntry(subdomain, serviceType, manifest, githubRepo, generationTimestamp))
   }
 

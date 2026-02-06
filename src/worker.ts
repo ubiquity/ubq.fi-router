@@ -12,7 +12,7 @@ import { getCachedSitemapEntries } from './site-map-discovery'
 import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
 import { getCachedPluginMapEntries } from './plugin-map-discovery'
 import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
-import type { ServiceType, CacheControlValue } from './types'
+import type { CacheControlValue } from './types'
 
 export interface Env {
   // Optional env vars to control logging without code changes

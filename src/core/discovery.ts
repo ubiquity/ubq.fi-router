@@ -4,7 +4,7 @@
  */
 
 import type { ServiceType, PluginManifest } from '../types'
-import { buildDenoUrl, buildPagesUrl, buildPluginUrl } from '../utils'
+import { buildDenoUrl, buildPagesUrl } from '../utils'
 import { getKnownServices, getKnownPlugins } from '../utils'
 
 /**

@@ -3,7 +3,7 @@
  * Uses in-memory caching and static fallback
  */
 
-import type { PluginMapEntry } from './types'
+import type { PluginMapEntry, ServiceType } from './types'
 import { discoverAllPlugins } from './core/discovery'
 import { createPluginMapEntry } from './plugin-map-generator'
 
@@ -21,15 +21,27 @@ export async function discoverAllForPluginMap(githubToken: string, generationTim
   const entries: PluginMapEntry[] = []
 
   // Convert to plugin-map entries
-  for (const [pluginName, { serviceType, manifest }] of pluginMap) {
-    const mainAvailable = serviceType !== 'plugin-none'
-    const developmentAvailable = false // Simplified - we only check main for now
+  for (const [pluginName, variants] of pluginMap) {
+    // Determine service type based on available variants
+    let serviceType: ServiceType
+    if (variants.main.available && variants.development.available) {
+      serviceType = 'plugin-both'
+    } else if (variants.main.available) {
+      serviceType = 'plugin-deno'
+    } else if (variants.development.available) {
+      serviceType = 'plugin-pages'
+    } else {
+      serviceType = 'plugin-none'
+    }
+
+    const mainAvailable = variants.main.available
+    const developmentAvailable = variants.development.available
 
     const discovery = {
       pluginName,
       serviceType,
-      mainManifest: manifest,
-      developmentManifest: undefined,
+      mainManifest: variants.main.manifest,
+      developmentManifest: variants.development.manifest,
       mainAvailable,
       developmentAvailable
     }

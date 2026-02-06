@@ -5,6 +5,8 @@
 
 import type { ServiceType } from './types'
 
+export type { ServiceType }
+
 export interface SitemapEntry {
   url: string
   serviceType: ServiceType
