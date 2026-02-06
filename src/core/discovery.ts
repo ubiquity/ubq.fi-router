@@ -1,6 +1,6 @@
 /**
  * Core service and plugin discovery logic
- * FAIL-FAST: No defensive coding, crashes on any unexpected condition
+ * DEFENSIVE: Graceful error handling for network failures
  */
 
 import type { ServiceType, PluginManifest } from '../types'
@@ -25,13 +25,13 @@ export async function checkDeploymentExists(url: string): Promise<boolean> {
 }
 
 /**
- * Discover service type for a subdomain - CRASH on network failures
+ * Discover service type for a subdomain - gracefully handle network failures
  */
 export async function discoverServiceType(subdomain: string, url: URL): Promise<ServiceType> {
   const denoUrl = buildDenoUrl(subdomain, url)
   const pagesUrl = buildPagesUrl(subdomain, url)
 
-  // Check both platforms in parallel - CRASH if network fails
+  // Check both platforms in parallel - gracefully handle network failures
   const [denoExists, pagesExists] = await Promise.all([
     checkDeploymentExists(denoUrl),
     checkDeploymentExists(pagesUrl)
