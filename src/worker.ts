@@ -62,7 +62,9 @@ function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
-    const cacheControl = request.headers.get('X-Cache-Control') as CacheControlValue
+    const raw = request.headers.get('X-Cache-Control')
+    const cacheControl: CacheControlValue =
+      raw === 'refresh' || raw === 'clear' || raw === 'clear-all' ? raw : null
 
     if (url.pathname === '/__health') {
       if (shouldLog('health', request, url, env)) {
@@ -88,20 +90,20 @@ export default {
     // Handle sitemap endpoints
     const forceRefresh = cacheControl === 'refresh' && isRefreshAuthorized(request, env)
     if (url.pathname === '/sitemap.xml') {
-      return await handleSitemapXml(forceRefresh, env.GITHUB_TOKEN, request)
+      return await handleSitemapXml(forceRefresh, env.GITHUB_TOKEN)
     }
 
     if (url.pathname === '/sitemap.json') {
-      return await handleSitemapJson(forceRefresh, env.GITHUB_TOKEN, request)
+      return await handleSitemapJson(forceRefresh, env.GITHUB_TOKEN)
     }
 
     // Handle plugin-map endpoints
     if (url.pathname === '/plugin-map.xml') {
-      return await handlePluginMapXml(forceRefresh, env.GITHUB_TOKEN, request)
+      return await handlePluginMapXml(env.GITHUB_TOKEN)
     }
 
     if (url.pathname === '/plugin-map.json') {
-      return await handlePluginMapJson(forceRefresh, env.GITHUB_TOKEN, request)
+      return await handlePluginMapJson(env.GITHUB_TOKEN)
     }
 
 
@@ -275,12 +277,19 @@ function shortHash(input: string): string {
 async function safeSitemapGeneration(
   forceRefresh: boolean,
   githubToken: string,
-  request?: any
 ): Promise<SitemapEntry[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
+  // Race between sitemap generation and timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Sitemap generation timeout')), TIMEOUT_MS)
+  })
+
   try {
-    const entries = await getCachedSitemapEntries(githubToken, forceRefresh, request)
+    const entries = await Promise.race([
+      getCachedSitemapEntries(githubToken, forceRefresh),
+      timeoutPromise
+    ])
     return entries
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -299,7 +308,7 @@ async function handleSitemapXml(
   request?: any
   ): Promise<Response> {
   try {
-    const entries = await safeSitemapGeneration(forceRefresh, githubToken, request)
+    const entries = await safeSitemapGeneration(forceRefresh, githubToken)
     const xmlContent = generateXmlSitemap(entries)
     return createXmlResponse(xmlContent)
   } catch (error) {
@@ -314,10 +323,9 @@ async function handleSitemapXml(
 async function handleSitemapJson(
   forceRefresh: boolean,
   githubToken: string,
-  request?: any
   ): Promise<Response> {
   try {
-    const entries = await safeSitemapGeneration(forceRefresh, githubToken, request)
+    const entries = await safeSitemapGeneration(forceRefresh, githubToken)
     const jsonContent = generateJsonSitemap(entries)
     return createJsonResponse(jsonContent)
   } catch (error) {
@@ -334,8 +342,16 @@ async function safePluginMapGeneration(
 ): Promise<PluginMapEntry[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
+  // Race between plugin-map generation and timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Plugin-map generation timeout')), TIMEOUT_MS)
+  })
+
   try {
-    const entries = await getCachedPluginMapEntries(githubToken)
+    const entries = await Promise.race([
+      getCachedPluginMapEntries(githubToken),
+      timeoutPromise
+    ])
     return entries
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -349,10 +365,8 @@ async function safePluginMapGeneration(
  * Handle XML plugin-map requests
  */
 async function handlePluginMapXml(
-  forceRefresh: boolean,
-  githubToken: string,
-  request?: any
-  ): Promise<Response> {
+  githubToken: string
+): Promise<Response> {
   try {
     const entries = await safePluginMapGeneration(githubToken)
     const xmlContent = generateXmlPluginMap(entries)
@@ -367,10 +381,8 @@ async function handlePluginMapXml(
  * Handle JSON plugin-map requests
  */
 async function handlePluginMapJson(
-  forceRefresh: boolean,
-  githubToken: string,
-  request?: any
-  ): Promise<Response> {
+  githubToken: string
+): Promise<Response> {
   try {
     const entries = await safePluginMapGeneration(githubToken)
     const jsonContent = generateJsonPluginMap(entries, new Date().toISOString())

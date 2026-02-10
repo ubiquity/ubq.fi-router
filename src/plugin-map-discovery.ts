@@ -6,6 +6,10 @@
 import type { PluginMapEntry, ServiceType } from './types'
 import { discoverAllPlugins } from './core/discovery'
 import { createPluginMapEntry } from './plugin-map-generator'
+import { memoryGetJson, memoryPutJson } from './utils/memory-cache'
+
+const PLUGIN_MAP_CACHE_KEY = 'plugin-map:entries'
+const PLUGIN_MAP_CACHE_TTL = 60 * 60 // 1 hour in seconds
 
 /**
  * Discover all plugins for plugin-map
@@ -53,13 +57,34 @@ export async function discoverAllForPluginMap(githubToken: string, generationTim
 }
 
 /**
- * Get plugin-map entries - generates fresh each time (no KV caching)
+ * Get plugin-map entries - uses in-memory caching, bypassed by forceRefresh
  */
 export async function getCachedPluginMapEntries(
-  githubToken: string
+  githubToken: string,
+  forceRefresh = false,
+  request?: any
 ): Promise<PluginMapEntry[]> {
+  // Bypass cache when forceRefresh is true
+  if (forceRefresh) {
+    const generationTimestamp = new Date().toISOString()
+    const entries = await discoverAllForPluginMap(githubToken, generationTimestamp)
+    // Cache the fresh result
+    await memoryPutJson(PLUGIN_MAP_CACHE_KEY, entries, PLUGIN_MAP_CACHE_TTL)
+    return entries
+  }
+
+  // Try to get from cache first
+  const cached = await memoryGetJson<PluginMapEntry[]>(PLUGIN_MAP_CACHE_KEY)
+  if (cached) {
+    return cached
+  }
+
+  // Cache miss - generate fresh entries
   const generationTimestamp = new Date().toISOString()
   const entries = await discoverAllForPluginMap(githubToken, generationTimestamp)
+  
+  // Cache the result
+  await memoryPutJson(PLUGIN_MAP_CACHE_KEY, entries, PLUGIN_MAP_CACHE_TTL)
 
   return entries
 }

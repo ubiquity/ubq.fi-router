@@ -153,8 +153,8 @@ export async function discoverAllPlugins(githubToken: string): Promise<Map<strin
     development: { available: boolean; manifest?: PluginManifest }
   }>()
 
-  // Process in smaller batches to avoid timeouts
-  const batchSize = 2
+  // Process in batches - match discoverAllServices batch size for consistency
+  const batchSize = 5
   for (let i = 0; i < plugins.length; i += batchSize) {
     const batch = plugins.slice(i, i + batchSize)
 
