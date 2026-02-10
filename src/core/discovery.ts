@@ -14,7 +14,7 @@ export async function checkDeploymentExists(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, {
       method: 'HEAD',
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(5000) // 5s timeout (within 8s worker budget)
     })
     // Only 2xx status codes indicate working services
     return response.status >= 200 && response.status < 300
@@ -58,7 +58,7 @@ async function fetchVariantManifest(variant: string): Promise<{ available: boole
   try {
     const response = await fetch(manifestUrl, {
       method: 'GET',
-      signal: AbortSignal.timeout(10000) // 10 second timeout
+      signal: AbortSignal.timeout(5000) // 5s timeout (within 8s worker budget)
     })
     
     if (!response.ok) {

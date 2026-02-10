@@ -55,8 +55,9 @@ function calculatePriority(subdomain: string, serviceType: ServiceType): number 
  * Determine change frequency based on service type
  */
 function getChangeFrequency(serviceType: ServiceType): 'daily' | 'weekly' | 'monthly' {
+  // Check for -none suffix first to avoid dead code
+  if (serviceType.endsWith('-none')) return 'monthly'
   if (serviceType.startsWith('plugin-')) return 'weekly'
-  if (serviceType === 'service-none' || serviceType === 'plugin-none') return 'monthly'
   return 'weekly'
 }
 
@@ -115,6 +116,18 @@ export function createSitemapEntry(
 }
 
 /**
+ * Escape special XML characters to prevent malformed output
+ */
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+/**
  * Generate XML sitemap from entries
  */
 export function generateXmlSitemap(entries: SitemapEntry[]): string {
@@ -126,9 +139,9 @@ export function generateXmlSitemap(entries: SitemapEntry[]): string {
     .filter(entry => !entry.serviceType.endsWith('-none')) // Exclude non-existent services
     .map(entry => {
       return `  <url>
-    <loc>${entry.url}</loc>
-    <lastmod>${entry.lastmod}</lastmod>
-    <changefreq>${entry.changefreq}</changefreq>
+    <loc>${escapeXml(entry.url)}</loc>
+    <lastmod>${escapeXml(entry.lastmod)}</lastmod>
+    <changefreq>${escapeXml(entry.changefreq)}</changefreq>
     <priority>${entry.priority.toFixed(1)}</priority>
   </url>`
     })

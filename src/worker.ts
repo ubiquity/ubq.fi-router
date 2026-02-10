@@ -9,14 +9,17 @@ import { isPluginDomain } from './utils/is-plugin-domain'
 import { buildDenoUrl } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
 import { getCachedSitemapEntries } from './site-map-discovery'
+import type { SitemapEntry } from './sitemap-generator'
 import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
 import { getCachedPluginMapEntries } from './plugin-map-discovery'
+import type { PluginMapEntry } from './types'
 import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
 import type { CacheControlValue } from './types'
 
 export interface Env {
   // Optional env vars to control logging without code changes
   GITHUB_TOKEN: string
+  REFRESH_SECRET?: string // Secret for authenticating cache refresh requests
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
   LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
@@ -34,6 +37,11 @@ function debugRequested(request: Request, url: URL): boolean {
   const hdr = request.headers.get('x-debug-log')?.toLowerCase()
   const qp = url.searchParams.get('__log')?.toLowerCase()
   return hdr === '1' || hdr === 'true' || qp === '1' || qp === 'true'
+}
+
+function isRefreshAuthorized(request: Request, env: Env): boolean {
+  const refreshSecret = request.headers.get('X-Refresh-Secret')
+  return refreshSecret === env.REFRESH_SECRET
 }
 
 function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean {
@@ -75,23 +83,24 @@ export default {
       return handleRpc(request, url, env)
     }
 
-      // Handle sitemap endpoints
-  if (url.pathname === '/sitemap.xml') {
-    return await handleSitemapXml(cacheControl === 'refresh', env.GITHUB_TOKEN, request)
-  }
+    // Handle sitemap endpoints
+    const forceRefresh = cacheControl === 'refresh' && isRefreshAuthorized(request, env)
+    if (url.pathname === '/sitemap.xml') {
+      return await handleSitemapXml(forceRefresh, env.GITHUB_TOKEN, request)
+    }
 
-  if (url.pathname === '/sitemap.json') {
-    return await handleSitemapJson(cacheControl === 'refresh', env.GITHUB_TOKEN, request)
-  }
+    if (url.pathname === '/sitemap.json') {
+      return await handleSitemapJson(forceRefresh, env.GITHUB_TOKEN, request)
+    }
 
-  // Handle plugin-map endpoints
-  if (url.pathname === '/plugin-map.xml') {
-    return await handlePluginMapXml(cacheControl === 'refresh', env.GITHUB_TOKEN, request)
-  }
+    // Handle plugin-map endpoints
+    if (url.pathname === '/plugin-map.xml') {
+      return await handlePluginMapXml(forceRefresh, env.GITHUB_TOKEN, request)
+    }
 
-  if (url.pathname === '/plugin-map.json') {
-    return await handlePluginMapJson(cacheControl === 'refresh', env.GITHUB_TOKEN, request)
-  }
+    if (url.pathname === '/plugin-map.json') {
+      return await handlePluginMapJson(forceRefresh, env.GITHUB_TOKEN, request)
+    }
 
 
     const inHost = url.hostname
@@ -265,19 +274,18 @@ async function safeSitemapGeneration(
   forceRefresh: boolean,
   githubToken: string,
   request?: any
-  ): Promise<any[]> {
+): Promise<SitemapEntry[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
-  // Race between sitemap generation and timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Sitemap generation timeout')), TIMEOUT_MS)
-  })
-
-  const sitemapPromise = getCachedSitemapEntries(githubToken, forceRefresh, request)
-
-  const entries = await Promise.race([sitemapPromise, timeoutPromise]) as any[]
-
-  return entries
+  try {
+    const entries = await getCachedSitemapEntries(githubToken, forceRefresh, request)
+    return entries
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Sitemap generation timeout')
+    }
+    throw err
+  }
 }
 
 /**
@@ -294,8 +302,7 @@ async function handleSitemapXml(
     return createXmlResponse(xmlContent)
   } catch (error) {
     console.error('Critical error in XML sitemap handler:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    return new Response(`Sitemap XML error: ${errorMessage}`, { status: 500 })
+    return new Response('Internal server error', { status: 500 })
   }
 }
 
@@ -313,8 +320,7 @@ async function handleSitemapJson(
     return createJsonResponse(jsonContent)
   } catch (error) {
     console.error('Critical error in JSON sitemap handler:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    return new Response(`Sitemap JSON error: ${errorMessage}`, { status: 500 })
+    return new Response('Internal server error', { status: 500 })
   }
 }
 
@@ -325,18 +331,18 @@ async function safePluginMapGeneration(
   forceRefresh: boolean,
   githubToken: string,
   request?: any
-  ): Promise<any[]> {
+): Promise<PluginMapEntry[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
-  // Race between plugin-map generation and timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Plugin-map generation timeout')), TIMEOUT_MS)
-  })
-
-  const pluginMapPromise = getCachedPluginMapEntries(githubToken, forceRefresh, request)
-
-  const entries = await Promise.race([pluginMapPromise, timeoutPromise]) as any[]
-  return entries
+  try {
+    const entries = await getCachedPluginMapEntries(githubToken)
+    return entries
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Plugin-map generation timeout')
+    }
+    throw err
+  }
 }
 
 /**
@@ -353,8 +359,7 @@ async function handlePluginMapXml(
     return createXmlPluginMapResponse(xmlContent)
   } catch (error) {
     console.error('Critical error in XML plugin-map handler:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    return new Response(`Plugin-map XML error: ${errorMessage}`, { status: 500 })
+    return new Response('Internal server error', { status: 500 })
   }
 }
 
@@ -372,7 +377,6 @@ async function handlePluginMapJson(
     return createJsonPluginMapResponse(jsonContent)
   } catch (error) {
     console.error('Critical error in JSON plugin-map handler:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    return new Response(`Plugin-map JSON error: ${errorMessage}`, { status: 500 })
+    return new Response('Internal server error', { status: 500 })
   }
 }

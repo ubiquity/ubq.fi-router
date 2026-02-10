@@ -5,6 +5,18 @@
 
 import type { ServiceType, PluginManifest, PluginMapEntry, JsonPluginMap } from './types'
 
+/**
+ * Escape special XML characters to prevent malformed output
+ */
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
 interface PluginDiscoveryResult {
   pluginName: string
   serviceType: ServiceType
@@ -122,14 +134,10 @@ export function generateXmlPluginMap(entries: PluginMapEntry[]): string {
     .filter(entry => entry.serviceType !== 'plugin-none') // Exclude non-existent plugins
     .map(entry => {
       return `  <url>
-    <loc>${entry.url}</loc>
-    <lastmod>${entry.lastmod}</lastmod>
-    <changefreq>${entry.changefreq}</changefreq>
+    <loc>${escapeXml(entry.url)}</loc>
+    <lastmod>${escapeXml(entry.lastmod)}</lastmod>
+    <changefreq>${escapeXml(entry.changefreq)}</changefreq>
     <priority>${entry.priority.toFixed(1)}</priority>
-    <!-- Plugin: ${entry.pluginName} -->
-    <!-- Display Name: ${entry.displayName} -->
-    <!-- Description: ${entry.description} -->
-    <!-- Deployments: main=${entry.deployments.main.available}, dev=${entry.deployments.development.available} -->
   </url>`
     })
     .join('\n')

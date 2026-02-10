@@ -56,11 +56,8 @@ export async function discoverAllForPluginMap(githubToken: string, generationTim
  * Get plugin-map entries - generates fresh each time (no KV caching)
  */
 export async function getCachedPluginMapEntries(
-  githubToken: string,
-  forceRefresh = false,
-  request?: any
+  githubToken: string
 ): Promise<PluginMapEntry[]> {
-  
   const generationTimestamp = new Date().toISOString()
   const entries = await discoverAllForPluginMap(githubToken, generationTimestamp)
 

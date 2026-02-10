@@ -94,7 +94,7 @@ export function getCacheStats(): { size: number; keys: string[] } {
   }
   
   return {
-    size: GLOBAL_CACHE.size,
+    size: validKeys.length,
     keys: validKeys
   }
 }
