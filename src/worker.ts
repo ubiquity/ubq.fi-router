@@ -281,8 +281,9 @@ async function safeSitemapGeneration(
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
   // Race between sitemap generation and timeout
+  let timer: ReturnType<typeof setTimeout> | undefined
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('Sitemap generation timeout')), TIMEOUT_MS)
+    timer = setTimeout(() => reject(new Error('Sitemap generation timeout')), TIMEOUT_MS)
   })
 
   try {
@@ -291,11 +292,8 @@ async function safeSitemapGeneration(
       timeoutPromise
     ])
     return entries
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('Sitemap generation timeout')
-    }
-    throw err
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -344,8 +342,9 @@ async function safePluginMapGeneration(
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
   // Race between plugin-map generation and timeout
+  let timer: ReturnType<typeof setTimeout> | undefined
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('Plugin-map generation timeout')), TIMEOUT_MS)
+    timer = setTimeout(() => reject(new Error('Plugin-map generation timeout')), TIMEOUT_MS)
   })
 
   try {
@@ -354,11 +353,8 @@ async function safePluginMapGeneration(
       timeoutPromise
     ])
     return entries
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('Plugin-map generation timeout')
-    }
-    throw err
+  } finally {
+    clearTimeout(timer)
   }
 }
 
