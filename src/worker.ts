@@ -41,6 +41,8 @@ function debugRequested(request: Request, url: URL): boolean {
 
 function isRefreshAuthorized(request: Request, env: Env): boolean {
   const refreshSecret = request.headers.get('X-Refresh-Secret')
+  // Guard against empty/unset secret
+  if (!env.REFRESH_SECRET) return false
   return refreshSecret === env.REFRESH_SECRET
 }
 
@@ -328,9 +330,7 @@ async function handleSitemapJson(
  * Safe plugin-map generation with timeout
  */
 async function safePluginMapGeneration(
-  forceRefresh: boolean,
-  githubToken: string,
-  request?: any
+  githubToken: string
 ): Promise<PluginMapEntry[]> {
   const TIMEOUT_MS = 8000 // 8 seconds timeout (within 10s worker limit)
 
@@ -354,7 +354,7 @@ async function handlePluginMapXml(
   request?: any
   ): Promise<Response> {
   try {
-    const entries = await safePluginMapGeneration(forceRefresh, githubToken, request)
+    const entries = await safePluginMapGeneration(githubToken)
     const xmlContent = generateXmlPluginMap(entries)
     return createXmlPluginMapResponse(xmlContent)
   } catch (error) {
@@ -372,7 +372,7 @@ async function handlePluginMapJson(
   request?: any
   ): Promise<Response> {
   try {
-    const entries = await safePluginMapGeneration(forceRefresh, githubToken, request)
+    const entries = await safePluginMapGeneration(githubToken)
     const jsonContent = generateJsonPluginMap(entries, new Date().toISOString())
     return createJsonPluginMapResponse(jsonContent)
   } catch (error) {

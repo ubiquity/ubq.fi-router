@@ -99,22 +99,14 @@ export async function discoverPluginVariants(baseName: string): Promise<{
 /**
  * Get all services from GitHub or static fallback
  */
-export async function getAllServices(githubToken: string): Promise<string[]> {
-  if (!githubToken) {
-    throw new Error('GITHUB_TOKEN is required but not provided')
-  }
-
+export async function getAllServices(githubToken?: string): Promise<string[]> {
   return await getKnownServices(githubToken)
 }
 
 /**
  * Get all plugins from GitHub or static fallback
  */
-export async function getAllPlugins(githubToken: string): Promise<string[]> {
-  if (!githubToken) {
-    throw new Error('GITHUB_TOKEN is required but not provided')
-  }
-
+export async function getAllPlugins(githubToken?: string): Promise<string[]> {
   return await getKnownPlugins(githubToken)
 }
 
