@@ -61,8 +61,7 @@ export async function discoverAllForPluginMap(githubToken: string, generationTim
  */
 export async function getCachedPluginMapEntries(
   githubToken: string,
-  forceRefresh = false,
-  request?: any
+  forceRefresh = false
 ): Promise<PluginMapEntry[]> {
   // Bypass cache when forceRefresh is true
   if (forceRefresh) {
