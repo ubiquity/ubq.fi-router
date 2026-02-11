@@ -278,7 +278,7 @@ async function safeSitemapGeneration(
   forceRefresh: boolean,
   githubToken: string,
 ): Promise<SitemapEntry[]> {
-  const TIMEOUT_MS = 10000 // 8 seconds timeout (within 10s worker limit)
+  const TIMEOUT_MS = 10000 // 10 seconds timeout (within 10s worker limit)
 
   // Race between sitemap generation and timeout
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -339,7 +339,7 @@ async function safePluginMapGeneration(
   forceRefresh: boolean,
   githubToken: string
 ): Promise<PluginMapEntry[]> {
-  const TIMEOUT_MS = 10000 // 8 seconds timeout (within 10s worker limit)
+  const TIMEOUT_MS = 10000 // 10 seconds timeout (within 10s worker limit)
 
   // Race between plugin-map generation and timeout
   let timer: ReturnType<typeof setTimeout> | undefined
