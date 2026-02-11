@@ -303,7 +303,6 @@ async function safeSitemapGeneration(
 async function handleSitemapXml(
   forceRefresh: boolean,
   githubToken: string,
-  request?: any
   ): Promise<Response> {
   try {
     const entries = await safeSitemapGeneration(forceRefresh, githubToken)
