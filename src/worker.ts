@@ -1,7 +1,8 @@
 /**
  * UBQ.FI Router — Cloudflare Worker
  * Deterministic routing to Deno Deploy apps; /rpc is same-origin proxy.
- * No KV, no discovery, no sticky cookies, no Pages fallback.
+ * Dynamic sitemap/plugin-map discovery with in-memory caching.
+ * No KV, no sticky cookies, no Pages fallback.
  */
 
 import { getSubdomainKey } from './utils/get-subdomain-key'
