@@ -1,16 +1,26 @@
 /**
  * UBQ.FI Router — Cloudflare Worker
- * Deterministic routing to Deno Deploy apps; /rpc is same‑origin proxy.
- * No KV, no discovery, no sticky cookies, no Pages fallback.
+ * Deterministic routing to Deno Deploy apps; /rpc is same-origin proxy.
+ * Dynamic sitemap/plugin-map discovery with in-memory caching.
+ * No KV, no sticky cookies, no Pages fallback.
  */
 
 import { getSubdomainKey } from './utils/get-subdomain-key'
 import { isPluginDomain } from './utils/is-plugin-domain'
 import { buildDenoUrl } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+import { getCachedSitemapEntries } from './site-map-discovery'
+import type { SitemapEntry } from './sitemap-generator'
+import { generateXmlSitemap, generateJsonSitemap, createXmlResponse, createJsonResponse } from './sitemap-generator'
+import { getCachedPluginMapEntries } from './plugin-map-discovery'
+import type { PluginMapEntry } from './types'
+import { generateXmlPluginMap, generateJsonPluginMap, createXmlPluginMapResponse, createJsonPluginMapResponse } from './plugin-map-generator'
+import type { CacheControlValue } from './types'
 
 export interface Env {
   // Optional env vars to control logging without code changes
+  GITHUB_TOKEN: string
+  REFRESH_SECRET?: string // Secret for authenticating cache refresh requests
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
   LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
@@ -30,6 +40,13 @@ function debugRequested(request: Request, url: URL): boolean {
   return hdr === '1' || hdr === 'true' || qp === '1' || qp === 'true'
 }
 
+function isRefreshAuthorized(request: Request, env: Env): boolean {
+  const refreshSecret = request.headers.get('X-Refresh-Secret')
+  // Guard against empty/unset secret
+  if (!env.REFRESH_SECRET) return false
+  return refreshSecret === env.REFRESH_SECRET
+}
+
 function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean {
   // Always allow explicit on-demand debugging via header or query param
   if (debugRequested(request, url)) return true
@@ -46,6 +63,9 @@ function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+    const raw = request.headers.get('X-Cache-Control')
+    const cacheControl: CacheControlValue =
+      raw === 'refresh' || raw === 'clear' || raw === 'clear-all' ? raw : null
 
     if (url.pathname === '/__health') {
       if (shouldLog('health', request, url, env)) {
@@ -67,6 +87,26 @@ export default {
     if (url.pathname.startsWith('/rpc/')) {
       return handleRpc(request, url, env)
     }
+
+    // Handle sitemap endpoints
+    const forceRefresh = cacheControl === 'refresh' && isRefreshAuthorized(request, env)
+    if (url.pathname === '/sitemap.xml') {
+      return await handleSitemapXml(forceRefresh, env.GITHUB_TOKEN)
+    }
+
+    if (url.pathname === '/sitemap.json') {
+      return await handleSitemapJson(forceRefresh, env.GITHUB_TOKEN)
+    }
+
+    // Handle plugin-map endpoints
+    if (url.pathname === '/plugin-map.xml') {
+      return await handlePluginMapXml(forceRefresh, env.GITHUB_TOKEN)
+    }
+
+    if (url.pathname === '/plugin-map.json') {
+      return await handlePluginMapJson(forceRefresh, env.GITHUB_TOKEN)
+    }
+
 
     const inHost = url.hostname
     const isPlugin = isPluginDomain(inHost)
@@ -229,4 +269,125 @@ function shortHash(input: string): string {
     h = (h * 31 + ch.charCodeAt(0)) >>> 0
   }
   return h.toString(16).padStart(4, '0').slice(0, 4)
+}
+
+
+/**
+ * Safe sitemap generation with timeout
+ */
+async function safeSitemapGeneration(
+  forceRefresh: boolean,
+  githubToken: string,
+): Promise<SitemapEntry[]> {
+  const TIMEOUT_MS = 10000 // 10 seconds timeout (within 10s worker limit)
+
+  // Race between sitemap generation and timeout
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Sitemap generation timeout')), TIMEOUT_MS)
+  })
+
+  try {
+    const entries = await Promise.race([
+      getCachedSitemapEntries(githubToken, forceRefresh),
+      timeoutPromise
+    ])
+    return entries
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Handle XML sitemap requests
+ */
+async function handleSitemapXml(
+  forceRefresh: boolean,
+  githubToken: string,
+  ): Promise<Response> {
+  try {
+    const entries = await safeSitemapGeneration(forceRefresh, githubToken)
+    const xmlContent = generateXmlSitemap(entries)
+    return createXmlResponse(xmlContent)
+  } catch (error) {
+    console.error('Critical error in XML sitemap handler:', error)
+    return new Response('Internal server error', { status: 500 })
+  }
+}
+
+/**
+ * Handle JSON sitemap requests
+ */
+async function handleSitemapJson(
+  forceRefresh: boolean,
+  githubToken: string,
+  ): Promise<Response> {
+  try {
+    const entries = await safeSitemapGeneration(forceRefresh, githubToken)
+    const jsonContent = generateJsonSitemap(entries)
+    return createJsonResponse(jsonContent)
+  } catch (error) {
+    console.error('Critical error in JSON sitemap handler:', error)
+    return new Response('Internal server error', { status: 500 })
+  }
+}
+
+/**
+ * Safe plugin-map generation with timeout
+ */
+async function safePluginMapGeneration(
+  forceRefresh: boolean,
+  githubToken: string
+): Promise<PluginMapEntry[]> {
+  const TIMEOUT_MS = 10000 // 10 seconds timeout (within 10s worker limit)
+
+  // Race between plugin-map generation and timeout
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Plugin-map generation timeout')), TIMEOUT_MS)
+  })
+
+  try {
+    const entries = await Promise.race([
+      getCachedPluginMapEntries(githubToken, forceRefresh),
+      timeoutPromise
+    ])
+    return entries
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Handle XML plugin-map requests
+ */
+async function handlePluginMapXml(
+  forceRefresh: boolean,
+  githubToken: string
+): Promise<Response> {
+  try {
+    const entries = await safePluginMapGeneration(forceRefresh, githubToken)
+    const xmlContent = generateXmlPluginMap(entries)
+    return createXmlPluginMapResponse(xmlContent)
+  } catch (error) {
+    console.error('Critical error in XML plugin-map handler:', error)
+    return new Response('Internal server error', { status: 500 })
+  }
+}
+
+/**
+ * Handle JSON plugin-map requests
+ */
+async function handlePluginMapJson(
+  forceRefresh: boolean,
+  githubToken: string
+): Promise<Response> {
+  try {
+    const entries = await safePluginMapGeneration(forceRefresh, githubToken)
+    const jsonContent = generateJsonPluginMap(entries, new Date().toISOString())
+    return createJsonPluginMapResponse(jsonContent)
+  } catch (error) {
+    console.error('Critical error in JSON plugin-map handler:', error)
+    return new Response('Internal server error', { status: 500 })
+  }
 }
