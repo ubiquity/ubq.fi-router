@@ -8,6 +8,7 @@ import { getSubdomainKey } from './utils/get-subdomain-key'
 import { isPluginDomain } from './utils/is-plugin-domain'
 import { buildDenoUrl } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+import { buildSitemap } from './sitemap'
 
 export interface Env {
   // Optional env vars to control logging without code changes
@@ -62,6 +63,11 @@ export default {
         } catch {}
       }
       return json({ status: 'ok', time: new Date().toISOString() })
+    }
+
+    // Sitemap endpoints
+    if (url.pathname === '/sitemap.xml' || url.pathname === '/sitemap.json') {
+      return handleSitemap(url.pathname)
     }
 
     if (url.pathname.startsWith('/rpc/')) {
@@ -229,4 +235,28 @@ function shortHash(input: string): string {
     h = (h * 31 + ch.charCodeAt(0)) >>> 0
   }
   return h.toString(16).padStart(4, '0').slice(0, 4)
+}
+
+async function handleSitemap(pathname: string): Promise<Response> {
+  try {
+    const { xml, json: jsonSitemap } = await buildSitemap()
+    if (pathname === '/sitemap.xml') {
+      return new Response(xml, {
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+        },
+      })
+    } else {
+      return new Response(JSON.stringify(jsonSitemap, null, 2), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+        },
+      })
+    }
+  } catch (err) {
+    console.error('Sitemap generation failed:', err)
+    return new Response('Sitemap generation error', { status: 500 })
+  }
 }
