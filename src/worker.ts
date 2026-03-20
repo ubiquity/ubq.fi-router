@@ -9,6 +9,7 @@ import { isPluginDomain } from './utils/is-plugin-domain'
 import { buildDenoUrl } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
 import { buildSitemap } from './sitemap'
+import { checkHealth, renderHtmlDashboard } from './health-dashboard'
 
 export interface Env {
   // Optional env vars to control logging without code changes
@@ -68,6 +69,11 @@ export default {
     // Sitemap endpoints
     if (url.pathname === '/sitemap.xml' || url.pathname === '/sitemap.json') {
       return handleSitemap(url.pathname)
+    }
+
+    // Health dashboard endpoints
+    if (url.pathname === '/health-dashboard' || url.pathname === '/health-dashboard.html' || url.pathname === '/health.json') {
+      return handleHealthDashboard(url.pathname)
     }
 
     if (url.pathname.startsWith('/rpc/')) {
@@ -258,5 +264,30 @@ async function handleSitemap(pathname: string): Promise<Response> {
   } catch (err) {
     console.error('Sitemap generation failed:', err)
     return new Response('Sitemap generation error', { status: 500 })
+  }
+}
+
+async function handleHealthDashboard(pathname: string): Promise<Response> {
+  try {
+    const data = await checkHealth()
+    if (pathname === '/health.json') {
+      return new Response(JSON.stringify(data, null, 2), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        },
+      })
+    } else {
+      const html = renderHtmlDashboard(data)
+      return new Response(html, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+  } catch (err) {
+    console.error('Health dashboard failed:', err)
+    return new Response('Health dashboard error', { status: 500 })
   }
 }
