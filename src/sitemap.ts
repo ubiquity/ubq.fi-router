@@ -35,25 +35,33 @@ interface JsonSitemap {
 /**
  * Get all plugin repositories from the ubiquity-os-marketplace GitHub org
  */
-async function fetchPluginRepos(): Promise<string[]> {
-  const res = await fetch(`${GITHUB_API}/orgs/ubiquity-os-marketplace/repos?per_page=100&sort=updated`, {
-    headers: {
-      "Accept": "application/vnd.github.v3+json",
-      "User-Agent": "ubq-fi-sitemap-generator",
-    },
-  });
-
-  if (!res.ok) {
-    console.error(`Failed to fetch plugin repos: ${res.status}`);
-    return [];
+async function fetchPluginRepos(token?: string): Promise<string[]> {
+  const headers: Record<string, string> = {
+    "Accept": "application/vnd.github.v3+json",
+    "User-Agent": "ubq-fi-sitemap-generator",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const repos: Array<{ name: string; pushed_at: string }> = await res.json();
+  const allRepos: string[] = [];
+  let page = 1;
+  while (true) {
+    const res = await fetch(`${GITHUB_API}/orgs/ubiquity-os-marketplace/repos?per_page=100&sort=updated&page=${page}`, { headers });
 
-  // Skip non-plugin repos (config repos, .github, etc.)
-  return repos
-    .filter((r) => !r.name.startsWith(".") && !["command-config", "command-wallet", "command-query", "daemon-pricing", "daemon-merging", "daemon-disqualifier", "daemon-task-matcher", "daemon-planner", "daemon-xp", "daemon-spec-rewriter", "daemon-xp"].includes(r.name))
-    .map((r) => r.name);
+    if (!res.ok) {
+      console.error(`Failed to fetch plugin repos page ${page}: ${res.status}`);
+      break;
+    }
+
+    const repos: Array<{ name: string }> = await res.json();
+    if (repos.length === 0) break;
+    allRepos.push(...repos.map((r) => r.name));
+    if (repos.length < 100) break;
+    page++;
+  }
+
+  return allRepos.filter((r) => !r.startsWith(".") && !["command-config", "command-wallet", "command-query", "daemon-pricing", "daemon-merging", "daemon-disqualifier", "daemon-task-matcher", "daemon-planner", "daemon-xp", "daemon-spec-rewriter"].includes(r));
 }
 
 /**
@@ -86,7 +94,7 @@ function escapeXml(str: string): string {
 /**
  * Build the full sitemap (apps + plugins)
  */
-export async function buildSitemap(): Promise<{ xml: string; json: JsonSitemap }> {
+export async function buildSitemap(token?: string): Promise<{ xml: string; json: JsonSitemap }> {
   const now = new Date().toISOString();
   const appEntries: SitemapEntry[] = APP_SUBDOMAINS.map((sub) => ({
     loc: sub ? `https://${sub}.ubq.fi` : UBQ_FI_BASE,
@@ -97,7 +105,7 @@ export async function buildSitemap(): Promise<{ xml: string; json: JsonSitemap }
   let pluginEntries: SitemapEntry[] = [];
 
   try {
-    const pluginNames = await fetchPluginRepos();
+    const pluginNames = await fetchPluginRepos(token);
     pluginEntries = pluginNames.map((name, i) => ({
       loc: `https://os-${name}.ubq.fi`,
       changefreq: "weekly" as const,

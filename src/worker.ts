@@ -11,6 +11,7 @@ import { buildPluginUrl } from './utils/build-plugin-url'
 import { buildSitemap } from './sitemap'
 
 export interface Env {
+  GITHUB_TOKEN?: string
   // Optional env vars to control logging without code changes
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
@@ -67,7 +68,7 @@ export default {
 
     // Sitemap endpoints
     if (url.pathname === '/sitemap.xml' || url.pathname === '/sitemap.json') {
-      return handleSitemap(url.pathname)
+      return handleSitemap(url.pathname, env.GITHUB_TOKEN)
     }
 
     if (url.pathname.startsWith('/rpc/')) {
@@ -237,9 +238,9 @@ function shortHash(input: string): string {
   return h.toString(16).padStart(4, '0').slice(0, 4)
 }
 
-async function handleSitemap(pathname: string): Promise<Response> {
+async function handleSitemap(pathname: string, githubToken?: string): Promise<Response> {
   try {
-    const { xml, json: jsonSitemap } = await buildSitemap()
+    const { xml, json: jsonSitemap } = await buildSitemap(githubToken)
     if (pathname === '/sitemap.xml') {
       return new Response(xml, {
         headers: {
