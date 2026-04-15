@@ -14,6 +14,9 @@ export interface Env {
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
   LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
+  // Version info injected at deploy time for debug footer
+  GITHUB_SHA?: string       // Current deployment commit hash (e.g. "a1b2c3d")
+  GITHUB_REPO_URL?: string  // Repo URL for debug link (e.g. "https://github.com/ubiquity/ubq.fi-router")
 }
 
 type LogKind = 'route' | 'rpc' | 'health'
@@ -64,6 +67,14 @@ export default {
       return json({ status: 'ok', time: new Date().toISOString() })
     }
 
+    if (url.pathname === '/__version') {
+      return json({
+        sha: env.GITHUB_SHA || 'unknown',
+        repo: env.GITHUB_REPO_URL || 'https://github.com/ubiquity/ubq.fi-router',
+        deployedAt: env.GITHUB_SHA ? new Date().toISOString() : null,
+      })
+    }
+
     if (url.pathname.startsWith('/rpc/')) {
       return handleRpc(request, url, env)
     }
@@ -79,7 +90,7 @@ export default {
 
     const started = Date.now()
     try {
-      const res = await proxy(request, target)
+      const res = await proxy(request, target, env)
       if (shouldLog('route', request, url, env)) {
         try {
           const log = {
@@ -165,6 +176,9 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
   outHeaders.set('Access-Control-Allow-Origin', '*')
   outHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
   outHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+  // Add version headers to RPC responses
+  if (env.GITHUB_SHA) outHeaders.set('X-App-Commit', env.GITHUB_SHA)
+  if (env.GITHUB_REPO_URL) outHeaders.set('X-App-Repo', env.GITHUB_REPO_URL)
   // RPC traffic can be very high-volume; sample heavily by default.
   if (shouldLog('rpc', request, url, env)) {
     try {
@@ -190,7 +204,7 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders })
 }
 
-async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Promise<Response> {
+async function proxy(request: Request, targetUrl: string, env: Env, timeoutMs = 6000): Promise<Response> {
   const headers = new Headers()
   for (const [key, value] of request.headers.entries()) {
     const k = key.toLowerCase()
@@ -203,7 +217,30 @@ async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Pro
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
+
+  // Inject version headers on all responses
+  const outHeaders = new Headers(res.headers)
+  if (env.GITHUB_SHA) outHeaders.set('X-App-Commit', env.GITHUB_SHA)
+  if (env.GITHUB_REPO_URL) outHeaders.set('X-App-Repo', env.GITHUB_REPO_URL)
+
+  // Inject revision hash footer into HTML responses
+  const contentType = outHeaders.get('content-type') || ''
+  if (contentType.includes('text/html') && (env.GITHUB_SHA || env.GITHUB_REPO_URL)) {
+    try {
+      const text = await res.text()
+      if (text.includes('</body>')) {
+        const sha = env.GITHUB_SHA && env.GITHUB_REPO_URL ? `<a href="${env.GITHUB_REPO_URL}/commit/${env.GITHUB_SHA}" target="_blank" style="color:#9ca3af;font-size:11px;text-decoration:none;margin-left:8px;">${env.GITHUB_SHA}</a>` : ''
+        const repo = env.GITHUB_REPO_URL ? `<a href="${env.GITHUB_REPO_URL}" target="_blank" style="color:#9ca3af;font-size:11px;text-decoration:none;">repo</a>` : ''
+        const footer = `<div style="position:fixed;bottom:0;left:0;right:0;background:#111827;padding:4px 12px;font-family:monospace;font-size:12px;color:#9ca3af;display:flex;align-items:center;gap:6px;border-top:1px solid #374151;z-index:9999;">${repo}${sha}</div>`
+        const modified = text.replace('</body>', footer + '</body>')
+        // Remove Content-Length since body was modified
+        outHeaders.delete('content-length')
+        return new Response(modified, { status: res.status, statusText: res.statusText, headers: outHeaders })
+      }
+    } catch {}
+  }
+
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: outHeaders })
 }
 
 function buildPreviewUrl(subKey: string, url: URL): string {
