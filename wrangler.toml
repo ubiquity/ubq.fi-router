@@ -4,6 +4,10 @@ compatibility_date = "2024-10-01"
 minify = true
 account_id = "5c0228bee348f4cf48829ffe21b61fe9"
 
+# Set REVISION_HASH at deploy time:
+#   wrangler deploy --var REVISION_HASH=$(git rev-parse HEAD)
+# Or set in Cloudflare dashboard under Workers > ubq-fi-router > Settings > Variables.
+
 # Note: Routes are managed in Cloudflare dashboard; none declared here.
 
 [observability]
