@@ -14,6 +14,8 @@ export interface Env {
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
   LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
+  // Git revision hash set at deploy time (wrangler [vars] or dashboard)
+  REVISION_HASH?: string
 }
 
 type LogKind = 'route' | 'rpc' | 'health'
@@ -79,7 +81,7 @@ export default {
 
     const started = Date.now()
     try {
-      const res = await proxy(request, target)
+      const res = await proxy(request, target, env, 6000)
       if (shouldLog('route', request, url, env)) {
         try {
           const log = {
@@ -190,7 +192,18 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders })
 }
 
-async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Promise<Response> {
+/** Inject revision-hash footer into HTML responses (styles match work.ubq.fi). */
+class FooterInjector implements HTMLRewriterElementContentHandlers {
+  constructor(private hash: string) {}
+  element(element: Element) {
+    element.append(
+      `<div id="ubq-rev" style="position:fixed;bottom:0;right:0;padding:4px 10px;font:12px/1 monospace;background:#1a1a2e;color:#888;z-index:99999;border-top-left-radius:6px;opacity:.7"><a href="https://github.com/ubiquity/ubq.fi-router/commit/${this.hash}" target="_blank" rel="noopener" style="color:#6cf;text-decoration:none">${this.hash.slice(0, 7)}</a></div>`,
+      { html: true }
+    );
+  }
+}
+
+async function proxy(request: Request, targetUrl: string, env: Env, timeoutMs = 6000): Promise<Response> {
   const headers = new Headers()
   for (const [key, value] of request.headers.entries()) {
     const k = key.toLowerCase()
@@ -203,6 +216,16 @@ async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Pro
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
+
+  // Inject revision hash footer into HTML responses
+  const contentType = res.headers.get('content-type') || ''
+  const hash = env.REVISION_HASH || ''
+  if (contentType.includes('text/html') && hash) {
+    return new HTMLRewriter()
+      .on('body', new FooterInjector(hash))
+      .transform(res)
+  }
+
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
 }
 
