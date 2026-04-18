@@ -196,7 +196,7 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
 class FooterInjector implements HTMLRewriterElementContentHandlers {
   constructor(private hash: string) {}
   element(element: Element) {
-    element.before(
+    element.append(
       `<div id="ubq-rev" style="position:fixed;bottom:0;right:0;padding:4px 10px;font:12px/1 monospace;background:#1a1a2e;color:#888;z-index:99999;border-top-left-radius:6px;opacity:.7"><a href="https://github.com/ubiquity/ubq.fi-router/commit/${this.hash}" target="_blank" rel="noopener" style="color:#6cf;text-decoration:none">${this.hash.slice(0, 7)}</a></div>`,
       { html: true }
     );
