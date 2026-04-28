@@ -16,8 +16,10 @@ Entry point: `src/worker.ts` (module worker).
 ## Routing Rules
 
 - Services
-- `ubq.fi` → `https://ubq-fi.deno.dev`
-- `<sub>.ubq.fi` → `https://<sub>-ubq-fi.deno.dev`
+  - `ubq.fi` → try `https://ubq-fi.ubiquity-dao.deno.net`, fall back to `https://ubq-fi.deno.dev`
+  - `<sub>.ubq.fi` → try `https://<sub>-ubq-fi.ubiquity-dao.deno.net`, fall back to `https://<sub>-ubq-fi.deno.dev`
+  - Deno 2 is considered missing only when the Deno platform returns `x-deno-error.code=DEPLOYMENT_NOT_FOUND`
+  - Deploy Classic fallback responses include deprecation headers for the July 20, 2026 Deploy Classic shutdown
 - Plugins (`os-*.ubq.fi`)
   - `os-<plugin>.ubq.fi` → `<plugin>-main.deno.dev`
   - `os-<plugin>-main.ubq.fi` → `<plugin>-main.deno.dev`
@@ -28,8 +30,10 @@ Entry point: `src/worker.ts` (module worker).
 ## Notes
 
 - Routes are managed in the Cloudflare dashboard; `wrangler.toml` does not attach routes.
-- We do not persist any state (no KV, no LKG, no admin endpoints).
+- We do not persist app state (no KV, no LKG, no admin endpoints). The Worker uses short-lived Cloudflare Cache entries for Deno 2 existence probes.
 - Upstream headers/status are passed through; we strip host/origin/referer/cookie to upstream.
+- Deploy Classic fallback responses include `Deprecation`, `Sunset`, `Warning`, and `X-UOS-Deno-Classic-*` headers.
+- If both the Deno 2 app and Deploy Classic fallback are missing, the Worker returns a JSON `503` explaining that Deploy Classic is sunsetted and the service must be migrated.
 
 
 ## 🔧 Development Workflow
@@ -72,16 +76,16 @@ bun run deploy
   - `event: "route_error"` on upstream failures
   - `event: "health"` for `GET /__health`
 
-### KV Cache Inspection
-Check your Cloudflare KV namespace for cache entries:
-- Keys follow pattern: `route:{subdomain}`
-- Values: `"deno"`, `"pages"`, `"both"`, `"plugin"`, or `"none"`
+### Deno 2 Probe Cache
+- Positive Deno 2 probe results are cached for 5 minutes.
+- Missing Deno 2 app results are cached for 60 seconds.
+- Probe errors are not cached and fall back to Deploy Classic for that request.
 
 ### Performance Metrics
 - **Bundle Size**: ~4.6kb (optimized)
-- **Cache TTL**: 1 hour (success), 5 minutes (404)
-- **Timeout**: 3 seconds per service check
-- **Coalescing**: Prevents duplicate requests
+- **Probe Cache TTL**: 5 minutes for Deno 2 apps, 60 seconds for missing Deno 2 apps
+- **Probe Timeout**: 1.5 seconds
+- **Proxy Timeout**: 6 seconds
 
 ## 🔍 Troubleshooting
 
@@ -92,10 +96,10 @@ Check your Cloudflare KV namespace for cache entries:
 - Verify URL building logic in `src/utils.ts`
 - Clear cache and refresh: `curl -H "X-Cache-Control: clear" https://domain.ubq.fi`
 
-**Cache not updating**
-- Use `X-Cache-Control: refresh` to force update
-- Check KV namespace configuration
-- Verify cache TTL settings
+**Deno 2 probe cache not updating**
+- Probe results use Cloudflare Cache, not KV.
+- Missing Deno 2 app results expire after 60 seconds.
+- Existing Deno 2 app results expire after 5 minutes.
 
 **Build failures**
 - Run `bun run type-check` for TypeScript errors
