@@ -14,8 +14,8 @@ describe('Deno service routing', () => {
 
   test('keeps root and other services compatible with classic Deno Deploy URL shape', () => {
     expect(buildClassicDenoUrl('', new URL('https://ubq.fi/docs'))).toBe('https://ubq-fi.deno.dev/docs')
-    expect(buildClassicDenoUrl('pay', new URL('https://pay.ubq.fi/api/health'))).toBe(
-      'https://pay-ubq-fi.deno.dev/api/health',
+    expect(buildClassicDenoUrl('fixture', new URL('https://fixture.ubq.fi/__route_fixture__/resource?via=test'))).toBe(
+      'https://fixture-ubq-fi.deno.dev/__route_fixture__/resource?via=test',
     )
   })
 
@@ -35,8 +35,8 @@ describe('Deno service routing', () => {
   })
 
   test('falls back to classic only when Deno 2 platform says the deployment is missing', async () => {
-    const url = new URL('https://pay.ubq.fi/api/health')
-    const route = await resolveDenoUrl('pay', url, {
+    const url = new URL('https://fixture.ubq.fi/__route_fixture__/resource?via=test')
+    const route = await resolveDenoUrl('fixture', url, {
       cache: null,
       fetch: async () =>
         new Response(null, {
@@ -52,7 +52,7 @@ describe('Deno service routing', () => {
 
     expect(route.kind).toBe('classic')
     expect(route.fallbackReason).toBe('deno2_deployment_not_found')
-    expect(route.url).toBe('https://pay-ubq-fi.deno.dev/api/health')
+    expect(route.url).toBe('https://fixture-ubq-fi.deno.dev/__route_fixture__/resource?via=test')
   })
 
   test('falls back to classic when the Deno 2 probe fails', async () => {
@@ -80,7 +80,7 @@ describe('Deno service routing', () => {
     }
 
     try {
-      const route = await resolveDenoUrl('pay', new URL('https://pay.ubq.fi/api/health'), {
+      const route = await resolveDenoUrl('fixture', new URL('https://fixture.ubq.fi/__route_fixture__/resource'), {
         cache: null,
         fetch: async () =>
           new Response(null, {
@@ -90,7 +90,7 @@ describe('Deno service routing', () => {
       })
 
       expect(route.kind).toBe('classic')
-      expect(route.url).toBe('https://pay-ubq-fi.deno.dev/api/health')
+      expect(route.url).toBe('https://fixture-ubq-fi.deno.dev/__route_fixture__/resource')
     } finally {
       if (previousCaches === undefined) {
         delete globalWithCaches.caches

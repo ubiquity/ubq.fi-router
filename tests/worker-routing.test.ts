@@ -40,11 +40,11 @@ describe('worker Deno service routing', () => {
       return new Response('classic ok', { headers: { 'x-target-host': new URL(req.url).host } })
     }) as typeof fetch
 
-    const res = await worker.fetch(new Request('https://pay.ubq.fi/api/health'), {} as Env)
+    const res = await worker.fetch(new Request('https://fixture.ubq.fi/__route_fixture__/resource'), {} as Env)
 
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('classic ok')
-    expect(res.headers.get('x-target-host')).toBe('pay-ubq-fi.deno.dev')
+    expect(res.headers.get('x-target-host')).toBe('fixture-ubq-fi.deno.dev')
     expect(res.headers.get('x-uos-deno-classic-fallback')).toBe('true')
     expect(res.headers.get('x-uos-deno-classic-sunset')).toBe('2026-07-20')
     expect(res.headers.get('sunset')).toBe('Mon, 20 Jul 2026 00:00:00 GMT')
