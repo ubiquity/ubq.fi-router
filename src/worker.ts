@@ -1,12 +1,22 @@
 /**
  * UBQ.FI Router — Cloudflare Worker
  * Deterministic routing to Deno Deploy apps; /rpc is same‑origin proxy.
- * No KV, no discovery, no sticky cookies, no Pages fallback.
+ * Service routes prefer Deno Deploy and fall back to Deploy Classic only when
+ * the Deno platform reports the new deployment is missing.
+ * No KV, no sticky cookies, no Pages fallback.
  */
 
 import { getSubdomainKey } from './utils/get-subdomain-key'
 import { isPluginDomain } from './utils/is-plugin-domain'
-import { buildDenoUrl } from './utils/build-deno-url'
+import {
+  DENO_CLASSIC_FALLBACK_WARNING,
+  DENO_CLASSIC_MIGRATION_URL,
+  DENO_CLASSIC_SUNSET_DATE,
+  DENO_CLASSIC_SUNSET_HTTP_DATE,
+  type DenoRouteTarget,
+  isDenoDeploymentNotFound,
+  resolveDenoUrl,
+} from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
 
 export interface Env {
@@ -71,15 +81,21 @@ export default {
     const inHost = url.hostname
     const isPlugin = isPluginDomain(inHost)
     const subKey = getSubdomainKey(inHost)
-    const target = isPlugin
-      ? buildPluginUrl(inHost, url)
-      : subKey.startsWith('preview-')
-        ? buildPreviewUrl(subKey, url)
-        : buildDenoUrl(subKey, url)
+    let denoTarget: DenoRouteTarget | null = null
+    let target: string
+    if (isPlugin) {
+      target = buildPluginUrl(inHost, url)
+    } else if (subKey.startsWith('preview-')) {
+      target = buildPreviewUrl(subKey, url)
+    } else {
+      denoTarget = await resolveDenoUrl(subKey, url)
+      target = denoTarget.url
+    }
 
     const started = Date.now()
     try {
       const res = await proxy(request, target)
+      const response = handleDenoClassicFallbackResponse(res, inHost, denoTarget)
       if (shouldLog('route', request, url, env)) {
         try {
           const log = {
@@ -92,7 +108,9 @@ export default {
             hasQuery: url.search.length > 0,
             target,
             targetHost: new URL(target).hostname,
-            status: res.status,
+            denoRouteKind: denoTarget?.kind,
+            denoFallbackReason: denoTarget?.fallbackReason,
+            status: response.status,
             ms: Date.now() - started,
             workIncoming: inHost === 'work.ubq.fi',
             workTarget: !isPlugin && subKey === 'work',
@@ -102,7 +120,7 @@ export default {
           console.log(JSON.stringify({ event: 'route', ...log }))
         } catch {}
       }
-      return res
+      return response
     } catch (err) {
       console.error(JSON.stringify({
         event: 'route_error',
@@ -113,6 +131,8 @@ export default {
         hostHeader: request.headers.get('host') || undefined,
         path: url.pathname,
         target,
+        denoRouteKind: denoTarget?.kind,
+        denoFallbackReason: denoTarget?.fallbackReason,
         message: err instanceof Error ? err.message : String(err)
       }))
       return new Response('Upstream error', { status: 502 })
@@ -204,6 +224,59 @@ async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Pro
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
+}
+
+function handleDenoClassicFallbackResponse(res: Response, inHost: string, denoTarget: DenoRouteTarget | null): Response {
+  if (denoTarget?.kind !== 'classic') return res
+
+  if (isDenoDeploymentNotFound(res.headers)) {
+    try {
+      void res.body?.cancel()
+    } catch {}
+    return denoClassicUnavailableResponse(inHost, denoTarget, res.status)
+  }
+
+  return withDenoClassicFallbackHeaders(res, denoTarget)
+}
+
+function withDenoClassicFallbackHeaders(res: Response, denoTarget: DenoRouteTarget): Response {
+  const headers = new Headers(res.headers)
+  setDenoClassicFallbackHeaders(headers, denoTarget)
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
+}
+
+function denoClassicUnavailableResponse(inHost: string, denoTarget: DenoRouteTarget, upstreamStatus: number): Response {
+  const headers = new Headers({
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store',
+  })
+  setDenoClassicFallbackHeaders(headers, denoTarget)
+
+  return new Response(JSON.stringify({
+    error: {
+      message:
+        `No Deno Deploy app was found for ${inHost}, and the Deno Deploy Classic fallback is unavailable. ` +
+        `Deno Deploy Classic shuts down on ${DENO_CLASSIC_SUNSET_DATE}; migrate this service to Deno Deploy.`,
+      code: 'deno_classic_fallback_unavailable',
+      classic_sunset_date: DENO_CLASSIC_SUNSET_DATE,
+      migration_url: DENO_CLASSIC_MIGRATION_URL,
+      deno2_target: denoTarget.deno2Url,
+      classic_target: denoTarget.classicUrl,
+      upstream_status: upstreamStatus,
+    },
+  }), { status: 503, headers })
+}
+
+function setDenoClassicFallbackHeaders(headers: Headers, denoTarget: DenoRouteTarget): void {
+  headers.set('Deprecation', 'true')
+  headers.set('Sunset', DENO_CLASSIC_SUNSET_HTTP_DATE)
+  headers.set('Warning', `299 ubq.fi-router "${DENO_CLASSIC_FALLBACK_WARNING}"`)
+  headers.append('Link', `<${DENO_CLASSIC_MIGRATION_URL}>; rel="deprecation"; type="text/html"`)
+  headers.set('X-UOS-Deno-Classic-Fallback', 'true')
+  headers.set('X-UOS-Deno-Classic-Sunset', DENO_CLASSIC_SUNSET_DATE)
+  headers.set('X-UOS-Deno-Classic-Reason', denoTarget.fallbackReason ?? 'unknown')
+  headers.set('X-UOS-Deno2-Target', denoTarget.deno2Url)
+  headers.set('X-UOS-Deno-Classic-Target', denoTarget.classicUrl)
 }
 
 function buildPreviewUrl(subKey: string, url: URL): string {

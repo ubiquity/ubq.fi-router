@@ -8,7 +8,7 @@
     "cf:deploy": "wrangler deploy",
     "type-check": "tsc --noEmit",
     "build": "mkdir -p dist && cp src/worker.ts dist/worker.js",
-    "test": "echo 'No tests defined yet'"
+    "test": "bun test"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
