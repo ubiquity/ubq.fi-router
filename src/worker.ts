@@ -94,8 +94,8 @@ export default {
 
     const started = Date.now()
     try {
-      const res = await proxy(request, target)
-      const response = handleDenoClassicFallbackResponse(res, inHost, denoTarget)
+      const result = await proxyRoute(request, target, inHost, denoTarget)
+      const response = result.response
       if (shouldLog('route', request, url, env)) {
         try {
           const log = {
@@ -106,10 +106,10 @@ export default {
             hostHeader: request.headers.get('host') || undefined,
             path: url.pathname,
             hasQuery: url.search.length > 0,
-            target,
-            targetHost: new URL(target).hostname,
-            denoRouteKind: denoTarget?.kind,
-            denoFallbackReason: denoTarget?.fallbackReason,
+            target: result.target,
+            targetHost: new URL(result.target).hostname,
+            denoRouteKind: result.denoRouteKind,
+            denoFallbackReason: result.denoFallbackReason,
             status: response.status,
             ms: Date.now() - started,
             workIncoming: inHost === 'work.ubq.fi',
@@ -226,17 +226,64 @@ async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Pro
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
 }
 
-function handleDenoClassicFallbackResponse(res: Response, inHost: string, denoTarget: DenoRouteTarget | null): Response {
-  if (denoTarget?.kind !== 'classic') return res
+type RouteProxyResult = Readonly<{
+  response: Response
+  target: string
+  denoRouteKind?: DenoRouteTarget['kind']
+  denoFallbackReason?: DenoRouteTarget['fallbackReason']
+}>
+
+async function proxyRoute(
+  request: Request,
+  target: string,
+  inHost: string,
+  denoTarget: DenoRouteTarget | null,
+): Promise<RouteProxyResult> {
+  const res = await proxy(request, target)
+  if (denoTarget?.kind !== 'classic') {
+    return {
+      response: res,
+      target,
+      denoRouteKind: denoTarget?.kind,
+      denoFallbackReason: denoTarget?.fallbackReason,
+    }
+  }
 
   if (isDenoDeploymentNotFound(res.headers)) {
     try {
       void res.body?.cancel()
     } catch {}
-    return denoClassicUnavailableResponse(inHost, denoTarget, res.status)
+
+    if (denoTarget.fallbackReason === 'deno2_probe_failed') {
+      const retryRes = await proxy(request, denoTarget.deno2Url)
+      if (!isDenoDeploymentNotFound(retryRes.headers)) {
+        return {
+          response: retryRes,
+          target: denoTarget.deno2Url,
+          denoRouteKind: 'deno2',
+          denoFallbackReason: denoTarget.fallbackReason,
+        }
+      }
+
+      try {
+        void retryRes.body?.cancel()
+      } catch {}
+    }
+
+    return {
+      response: denoClassicUnavailableResponse(inHost, denoTarget, res.status),
+      target,
+      denoRouteKind: denoTarget.kind,
+      denoFallbackReason: denoTarget.fallbackReason,
+    }
   }
 
-  return withDenoClassicFallbackHeaders(res, denoTarget)
+  return {
+    response: withDenoClassicFallbackHeaders(res, denoTarget),
+    target,
+    denoRouteKind: denoTarget.kind,
+    denoFallbackReason: denoTarget.fallbackReason,
+  }
 }
 
 function withDenoClassicFallbackHeaders(res: Response, denoTarget: DenoRouteTarget): Response {

@@ -83,7 +83,7 @@ async function deno2DeploymentExists(
   options: ResolveDenoUrlOptions,
 ): Promise<ProbeResult> {
   const appSlug = buildDeno2AppSlug(subdomain)
-  const cache = options.cache ?? getDefaultCache()
+  const cache = 'cache' in options ? options.cache ?? null : getDefaultCache()
   const cached = await readProbeCache(cache, appSlug)
   if (cached !== null) return cached
 

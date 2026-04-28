@@ -69,6 +69,37 @@ describe('Deno service routing', () => {
     expect(route.url).toBe('https://work-ubq-fi.deno.dev/')
   })
 
+  test('honors explicit null cache override', async () => {
+    const globalWithCaches = globalThis as unknown as { caches?: unknown }
+    const previousCaches = globalWithCaches.caches
+    globalWithCaches.caches = {
+      default: {
+        match: async () => new Response('exists'),
+        put: async () => {},
+      },
+    }
+
+    try {
+      const route = await resolveDenoUrl('pay', new URL('https://pay.ubq.fi/api/health'), {
+        cache: null,
+        fetch: async () =>
+          new Response(null, {
+            status: 404,
+            headers: { 'x-deno-error': '{"code":"DEPLOYMENT_NOT_FOUND"}' },
+          }),
+      })
+
+      expect(route.kind).toBe('classic')
+      expect(route.url).toBe('https://pay-ubq-fi.deno.dev/api/health')
+    } finally {
+      if (previousCaches === undefined) {
+        delete globalWithCaches.caches
+      } else {
+        globalWithCaches.caches = previousCaches
+      }
+    }
+  })
+
   test('detects Deno platform missing-deployment responses', () => {
     expect(isDenoDeploymentNotFound(new Headers())).toBe(false)
     expect(isDenoDeploymentNotFound(new Headers({ 'x-deno-error': '{"code":"DEPLOYMENT_NOT_FOUND"}' }))).toBe(true)

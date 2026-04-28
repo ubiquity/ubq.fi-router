@@ -96,10 +96,10 @@ bun run deploy
 - Verify URL building logic in `src/utils.ts`
 - Clear cache and refresh: `curl -H "X-Cache-Control: clear" https://domain.ubq.fi`
 
-**Cache not updating**
-- Use `X-Cache-Control: refresh` to force update
-- Check KV namespace configuration
-- Verify cache TTL settings
+**Deno 2 probe cache not updating**
+- Probe results use Cloudflare Cache, not KV.
+- Missing Deno 2 app results expire after 60 seconds.
+- Existing Deno 2 app results expire after 5 minutes.
 
 **Build failures**
 - Run `bun run type-check` for TypeScript errors
