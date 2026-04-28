@@ -240,6 +240,34 @@ async function proxyRoute(
   denoTarget: DenoRouteTarget | null,
 ): Promise<RouteProxyResult> {
   const res = await proxy(request, target)
+  if (denoTarget?.kind === 'deno2' && isDenoDeploymentNotFound(res.headers)) {
+    try {
+      void res.body?.cancel()
+    } catch {}
+
+    const fallbackTarget = buildClassicFallbackTarget(denoTarget, 'deno2_deployment_not_found')
+    const classicRes = await proxy(request, fallbackTarget.classicUrl)
+    if (!isDenoDeploymentNotFound(classicRes.headers)) {
+      return {
+        response: withDenoClassicFallbackHeaders(classicRes, fallbackTarget),
+        target: fallbackTarget.classicUrl,
+        denoRouteKind: fallbackTarget.kind,
+        denoFallbackReason: fallbackTarget.fallbackReason,
+      }
+    }
+
+    try {
+      void classicRes.body?.cancel()
+    } catch {}
+
+    return {
+      response: denoClassicUnavailableResponse(inHost, fallbackTarget, classicRes.status),
+      target: fallbackTarget.classicUrl,
+      denoRouteKind: fallbackTarget.kind,
+      denoFallbackReason: fallbackTarget.fallbackReason,
+    }
+  }
+
   if (denoTarget?.kind !== 'classic') {
     return {
       response: res,
@@ -283,6 +311,19 @@ async function proxyRoute(
     target,
     denoRouteKind: denoTarget.kind,
     denoFallbackReason: denoTarget.fallbackReason,
+  }
+}
+
+function buildClassicFallbackTarget(
+  denoTarget: DenoRouteTarget,
+  fallbackReason: NonNullable<DenoRouteTarget['fallbackReason']>,
+): DenoRouteTarget {
+  return {
+    url: denoTarget.classicUrl,
+    kind: 'classic',
+    deno2Url: denoTarget.deno2Url,
+    classicUrl: denoTarget.classicUrl,
+    fallbackReason,
   }
 }
 

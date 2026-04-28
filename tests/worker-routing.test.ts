@@ -95,4 +95,36 @@ describe('worker Deno service routing', () => {
       'https://ai-ubq-fi.ubiquity-dao.deno.net/v1/models',
     ])
   })
+
+  test('falls back to Deploy Classic when cached-positive Deno 2 request is missing', async () => {
+    const targets: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init)
+      targets.push(req.url)
+
+      if (req.method === 'HEAD') {
+        return new Response(null, { status: 404 })
+      }
+      if (req.url === 'https://ai-ubq-fi.ubiquity-dao.deno.net/v1/models') {
+        return new Response(null, {
+          status: 404,
+          headers: { 'x-deno-error': '{"code":"DEPLOYMENT_NOT_FOUND"}' },
+        })
+      }
+      return new Response('classic ok', { headers: { 'x-target-host': new URL(req.url).host } })
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://ai.ubq.fi/v1/models'), {} as Env)
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('classic ok')
+    expect(res.headers.get('x-target-host')).toBe('ai-ubq-fi.deno.dev')
+    expect(res.headers.get('x-uos-deno-classic-fallback')).toBe('true')
+    expect(res.headers.get('x-uos-deno-classic-reason')).toBe('deno2_deployment_not_found')
+    expect(targets).toEqual([
+      'https://ai-ubq-fi.ubiquity-dao.deno.net/__ubq_route_probe__',
+      'https://ai-ubq-fi.ubiquity-dao.deno.net/v1/models',
+      'https://ai-ubq-fi.deno.dev/v1/models',
+    ])
+  })
 })
