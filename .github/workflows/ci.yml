@@ -75,4 +75,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.20.3"
           preCommands: wrangler whoami
-          command: deploy
+          command: deploy --define __UOS_ROUTER_REVISION__:"\"${{ github.sha }}\""

@@ -13,6 +13,14 @@ import {
 } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
 
+declare const __UOS_ROUTER_REVISION__: string | undefined
+
+const ROUTER_REVISION_HEADER = 'x-uos-router-revision'
+const ROUTER_REVISION =
+  typeof __UOS_ROUTER_REVISION__ === 'string' && __UOS_ROUTER_REVISION__.length > 0
+    ? __UOS_ROUTER_REVISION__
+    : 'local'
+
 export interface Env {
   // Optional env vars to control logging without code changes
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
@@ -65,7 +73,7 @@ export default {
           }))
         } catch {}
       }
-      return json({ status: 'ok', time: new Date().toISOString() })
+      return withRouterRevision(json({ status: 'ok', time: new Date().toISOString() }))
     }
 
     if (url.pathname.startsWith('/rpc/')) {
@@ -127,9 +135,19 @@ export default {
         denoRouteKind: denoTarget?.kind,
         message: err instanceof Error ? err.message : String(err)
       }))
-      return new Response('Upstream error', { status: 502 })
+      return withRouterRevision(new Response('Upstream error', { status: 502 }))
     }
   }
+}
+
+function withRouterRevision(response: Response): Response {
+  const headers = new Headers(response.headers)
+  headers.set(ROUTER_REVISION_HEADER, ROUTER_REVISION)
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 }
 
 function json(obj: unknown, status = 200): Response {
@@ -143,11 +161,11 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
   const parts = url.pathname.split('/')
   const chainId = parts[2]
   if (!chainId || !/^\d+$/.test(chainId)) {
-    return new Response('Invalid chain ID. Must be numeric.', { status: 400 })
+    return withRouterRevision(new Response('Invalid chain ID. Must be numeric.', { status: 400 }))
   }
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, {
+    return withRouterRevision(new Response(null, {
       status: 204,
       headers: {
         'Access-Control-Allow-Origin': '*',
@@ -155,7 +173,7 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
         'Access-Control-Max-Age': '86400'
       }
-    })
+    }))
   }
 
   const targetUrl = `https://rpc.ubq.fi/${chainId}${url.search}`
@@ -199,7 +217,7 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
       console.log(JSON.stringify({ event: 'route', ...log }))
     } catch {}
   }
-  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders })
+  return withRouterRevision(new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders }))
 }
 
 async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Promise<Response> {
@@ -215,7 +233,7 @@ async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Pro
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
+  return withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }))
 }
 
 type RouteProxyResult = Readonly<{

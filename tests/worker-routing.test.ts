@@ -19,6 +19,7 @@ describe('worker Deno service routing', () => {
     const res = await worker.fetch(new Request('https://ai.ubq.fi/v1/models?limit=1'), {} as Env)
 
     expect(res.status).toBe(200)
+    expect(res.headers.get('x-uos-router-revision')).toBe('local')
     expect(res.headers.get('x-target-host')).toBe('ai-ubq-fi.ubiquity-dao.deno.net')
     expect(res.headers.get('x-uos-deno-classic-fallback')).toBe(null)
     expect(targets).toEqual(['https://ai-ubq-fi.ubiquity-dao.deno.net/v1/models?limit=1'])
