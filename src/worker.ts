@@ -16,6 +16,7 @@ import { buildPluginUrl } from './utils/build-plugin-url'
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
 const ROUTER_REVISION_HEADER = 'x-uos-router-revision'
+const ROUTER_REPOSITORY_URL = 'https://github.com/ubiquity/ubq.fi-router'
 const ROUTER_REVISION =
   typeof __UOS_ROUTER_REVISION__ === 'string' && __UOS_ROUTER_REVISION__.length > 0
     ? __UOS_ROUTER_REVISION__
@@ -121,7 +122,7 @@ export default {
           console.log(JSON.stringify({ event: 'route', ...log }))
         } catch {}
       }
-      return response
+      return await appendRevisionFooter(response)
     } catch (err) {
       console.error(JSON.stringify({
         event: 'route_error',
@@ -138,6 +139,37 @@ export default {
       return withRouterRevision(new Response('Upstream error', { status: 502 }))
     }
   }
+}
+
+function buildRevisionHref(): string {
+  if (ROUTER_REVISION === 'local') return ROUTER_REPOSITORY_URL
+  return `${ROUTER_REPOSITORY_URL}/commit/${encodeURIComponent(ROUTER_REVISION)}`
+}
+
+function revisionLabel(): string {
+  return ROUTER_REVISION.length > 12 ? ROUTER_REVISION.slice(0, 12) : ROUTER_REVISION
+}
+
+function shouldAppendRevisionFooter(response: Response): boolean {
+  const contentType = response.headers.get('content-type')?.toLowerCase() || ''
+  return response.status === 200 && contentType.includes('text/html')
+}
+
+async function appendRevisionFooter(response: Response): Promise<Response> {
+  if (!shouldAppendRevisionFooter(response)) return response
+
+  const html = await response.text()
+  const footer = `<a class="uos-revision-footer" href="${buildRevisionHref()}" target="_blank" rel="noopener noreferrer" aria-label="Router revision ${revisionLabel()}">${revisionLabel()}</a><style>.uos-revision-footer{position:fixed;right:12px;bottom:12px;z-index:2147483647;padding:4px 7px;border-radius:6px;background:rgba(17,24,39,.86);color:#fff;font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.22)}.uos-revision-footer:hover{background:rgba(17,24,39,.96);text-decoration:underline}</style>`
+  const body = /<\/body>/i.test(html)
+    ? html.replace(/<\/body>/i, `${footer}</body>`)
+    : `${html}${footer}`
+  const headers = new Headers(response.headers)
+  headers.delete('content-length')
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 }
 
 function withRouterRevision(response: Response): Response {
