@@ -8,6 +8,8 @@
 import { getSubdomainKey } from './utils/get-subdomain-key'
 import { isPluginDomain } from './utils/is-plugin-domain'
 import {
+  buildDeno2Url,
+  buildDeno2AppSlug,
   type DenoRouteTarget,
   resolveDenoUrl,
 } from './utils/build-deno-url'
@@ -29,6 +31,25 @@ export interface Env {
 }
 
 type LogKind = 'route' | 'rpc' | 'health'
+
+const HEALTH_DASHBOARD_SUBDOMAIN = 'health'
+const HEALTH_CHECK_TIMEOUT_MS = 2500
+const HEALTH_DASHBOARD_SERVICES = [
+  { name: 'ubq.fi', subdomain: '', repo: 'ubiquity/ubq.fi' },
+  { name: 'work.ubq.fi', subdomain: 'work', repo: 'ubiquity/work.ubq.fi' },
+  { name: 'pay.ubq.fi', subdomain: 'pay', repo: 'ubiquity/pay.ubq.fi' },
+  { name: 'ai.ubq.fi', subdomain: 'ai', repo: 'ubiquity/ai.ubq.fi' },
+  { name: 'rpc.ubq.fi', subdomain: 'rpc', repo: 'ubiquity/rpc.ubq.fi' },
+] as const
+
+type HealthProbe = Readonly<{
+  name: string
+  repo: string
+  url: string
+  status: 'ok' | 'down'
+  statusCode: number | null
+  ms: number
+}>
 
 function parseRate(value: string | undefined, fallback = 0): number {
   const n = Number(value)
@@ -83,6 +104,10 @@ export default {
     const inHost = url.hostname
     const isPlugin = isPluginDomain(inHost)
     const subKey = getSubdomainKey(inHost)
+    if (!isPlugin && subKey === HEALTH_DASHBOARD_SUBDOMAIN) {
+      return handleHealthDashboard(request, url)
+    }
+
     let denoTarget: DenoRouteTarget | null = null
     let target: string
     if (isPlugin) {
@@ -154,6 +179,127 @@ function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+  })
+}
+
+async function handleHealthDashboard(request: Request, url: URL): Promise<Response> {
+  const probes = await collectHealthProbes()
+  const acceptsJson =
+    url.pathname === '/status.json' ||
+    request.headers.get('accept')?.includes('application/json')
+
+  if (acceptsJson) {
+    return withRouterRevision(json({
+      status: probes.every((probe) => probe.status === 'ok') ? 'ok' : 'degraded',
+      generated: new Date().toISOString(),
+      services: probes,
+    }))
+  }
+
+  if (url.pathname !== '/') {
+    return withRouterRevision(new Response('Not found', { status: 404 }))
+  }
+
+  return withRouterRevision(new Response(renderHealthDashboard(probes), {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  }))
+}
+
+async function collectHealthProbes(): Promise<HealthProbe[]> {
+  return Promise.all(HEALTH_DASHBOARD_SERVICES.map(async (service) => {
+    const started = Date.now()
+    const healthUrl = buildDeno2Url(service.subdomain, new URL('https://ubq.fi/__health'))
+    try {
+      const response = await fetch(healthUrl, {
+        method: 'GET',
+        signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
+      })
+      return {
+        name: service.name,
+        repo: service.repo,
+        url: healthUrl,
+        status: response.ok ? 'ok' : 'down',
+        statusCode: response.status,
+        ms: Date.now() - started,
+      }
+    } catch {
+      return {
+        name: service.name,
+        repo: service.repo,
+        url: healthUrl,
+        status: 'down',
+        statusCode: null,
+        ms: Date.now() - started,
+      }
+    }
+  }))
+}
+
+function renderHealthDashboard(probes: readonly HealthProbe[]): string {
+  const okCount = probes.filter((probe) => probe.status === 'ok').length
+  const rows = probes.map((probe) => {
+    const repoUrl = `https://github.com/${probe.repo}`
+    return `<tr>
+      <td><a href="https://${probe.name}">${escapeHtml(probe.name)}</a></td>
+      <td><a href="${repoUrl}">${escapeHtml(probe.repo)}</a></td>
+      <td><a href="${escapeHtml(probe.url)}">${escapeHtml(buildDeno2AppSlug(serviceSubdomainFromName(probe.name)))}</a></td>
+      <td><span class="status ${probe.status}">${probe.status}</span></td>
+      <td>${probe.statusCode ?? 'timeout'}</td>
+      <td>${probe.ms}ms</td>
+    </tr>`
+  }).join('')
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>UBQ.FI Health</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111827; background: #f9fafb; }
+    main { max-width: 960px; margin: 0 auto; padding: 48px 20px; }
+    h1 { margin: 0 0 8px; font-size: 32px; }
+    p { margin: 0 0 24px; color: #4b5563; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+    th { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #6b7280; }
+    a { color: #2563eb; text-decoration: none; }
+    .summary { display: inline-flex; gap: 8px; align-items: center; margin-bottom: 20px; padding: 8px 12px; border: 1px solid #e5e7eb; background: #fff; }
+    .status { display: inline-block; min-width: 48px; padding: 3px 8px; border-radius: 999px; font-weight: 700; text-align: center; }
+    .ok { color: #166534; background: #dcfce7; }
+    .down { color: #991b1b; background: #fee2e2; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>UBQ.FI Health</h1>
+    <p>Live status checks for core apps routed through the UBQ.FI worker.</p>
+    <div class="summary">${okCount}/${probes.length} services healthy</div>
+    <table>
+      <thead><tr><th>Service</th><th>Repository</th><th>Deno app</th><th>Status</th><th>HTTP</th><th>Latency</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </main>
+</body>
+</html>`
+}
+
+function serviceSubdomainFromName(name: string): string {
+  return name === 'ubq.fi' ? '' : name.replace(/\.ubq\.fi$/, '')
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      default: return '&#39;'
+    }
   })
 }
 

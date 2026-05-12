@@ -8,6 +8,43 @@ afterEach(() => {
 })
 
 describe('worker Deno service routing', () => {
+  test('renders health dashboard for health.ubq.fi', async () => {
+    const targets: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init)
+      targets.push(req.url)
+      return new Response(JSON.stringify({ status: 'ok' }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://health.ubq.fi/'), {} as Env)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+    expect(await res.text()).toContain('UBQ.FI Health')
+    expect(targets).toContain('https://work-ubq-fi.ubiquity-dao.deno.net/__health')
+    expect(targets).toContain('https://pay-ubq-fi.ubiquity-dao.deno.net/__health')
+  })
+
+  test('returns health status JSON for health.ubq.fi/status.json', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init)
+      const status = req.url.includes('pay-ubq-fi') ? 503 : 200
+      return new Response(JSON.stringify({ status }), { status })
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://health.ubq.fi/status.json'), {} as Env)
+    const body = await res.json() as {
+      status: string
+      services: Array<{ name: string; status: string; statusCode: number }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(body.status).toBe('degraded')
+    expect(body.services.find((service) => service.name === 'pay.ubq.fi')?.status).toBe('down')
+  })
+
   test('routes service traffic directly to Deno 2', async () => {
     const targets: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
