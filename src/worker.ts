@@ -12,6 +12,11 @@ import {
   resolveDenoUrl,
 } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+import {
+  handleHealthDashboard,
+  isHealthDashboardHost,
+  type HealthEnv,
+} from './health-dashboard'
 
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
@@ -21,7 +26,7 @@ const ROUTER_REVISION =
     ? __UOS_ROUTER_REVISION__
     : 'local'
 
-export interface Env {
+export interface Env extends HealthEnv {
   // Optional env vars to control logging without code changes
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
@@ -74,6 +79,10 @@ export default {
         } catch {}
       }
       return withRouterRevision(json({ status: 'ok', time: new Date().toISOString() }))
+    }
+
+    if (isHealthDashboardHost(url.hostname)) {
+      return withRouterRevision(await handleHealthDashboard(request, env))
     }
 
     if (url.pathname.startsWith('/rpc/')) {

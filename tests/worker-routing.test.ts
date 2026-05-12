@@ -60,3 +60,63 @@ describe('worker Deno service routing', () => {
     expect(targets).toEqual(['https://p-pay-ubq-fi.deno.dev/path?x=1'])
   })
 })
+
+describe('health dashboard routing', () => {
+  test('serves health.ubq.fi from the router instead of proxying it as a service', async () => {
+    const targets: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init)
+      targets.push(req.url)
+      return new Response('ok')
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://health.ubq.fi/'), {
+      HEALTH_SERVICE_HOSTS: 'pay.ubq.fi',
+      HEALTH_PLUGIN_HOSTS: 'os-command-wallet.ubq.fi',
+    } as Env)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+    expect(res.headers.get('x-uos-router-revision')).toBe('local')
+    expect(await res.text()).toContain('UBQ.FI Health')
+    expect(targets).toEqual([
+      'https://pay-ubq-fi.ubiquity-dao.deno.net/',
+      'https://command-wallet-main.deno.dev/',
+    ])
+  })
+
+  test('exposes machine-readable health checks', async () => {
+    globalThis.fetch = (async () => new Response(null, { status: 204 })) as unknown as typeof fetch
+
+    const res = await worker.fetch(new Request('https://health.ubq.fi/api/health'), {
+      HEALTH_SERVICE_HOSTS: 'pay.ubq.fi',
+      HEALTH_PLUGIN_HOSTS: 'os-command-wallet.ubq.fi',
+      HEALTH_TIMEOUT_MS: '1000',
+    } as Env)
+    const body = await res.json() as {
+      status: string
+      checks: Array<{ kind: string; host: string; url: string; ok: boolean; status: number; ms: number }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(body.status).toBe('ok')
+    expect(body.checks).toEqual([
+      {
+        kind: 'service',
+        host: 'pay.ubq.fi',
+        url: 'https://pay-ubq-fi.ubiquity-dao.deno.net/',
+        ok: true,
+        status: 204,
+        ms: expect.any(Number),
+      },
+      {
+        kind: 'plugin',
+        host: 'os-command-wallet.ubq.fi',
+        url: 'https://command-wallet-main.deno.dev/',
+        ok: true,
+        status: 204,
+        ms: expect.any(Number),
+      },
+    ])
+  })
+})
