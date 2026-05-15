@@ -20,6 +20,8 @@ const ROUTER_REVISION =
   typeof __UOS_ROUTER_REVISION__ === 'string' && __UOS_ROUTER_REVISION__.length > 0
     ? __UOS_ROUTER_REVISION__
     : 'local'
+const DEFAULT_PROXY_TIMEOUT_MS = 30_000
+const AI_PROXY_TIMEOUT_MS = 120_000
 
 export interface Env {
   // Optional env vars to control logging without code changes
@@ -220,7 +222,13 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
   return withRouterRevision(new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders }))
 }
 
-async function proxy(request: Request, targetUrl: string, timeoutMs = 6000): Promise<Response> {
+export function proxyTimeoutMsForSubdomain(subKey: string): number {
+  return subKey === 'ai' || subKey === 'preview-ai'
+    ? AI_PROXY_TIMEOUT_MS
+    : DEFAULT_PROXY_TIMEOUT_MS
+}
+
+async function proxy(request: Request, targetUrl: string, timeoutMs: number): Promise<Response> {
   const headers = new Headers()
   for (const [key, value] of request.headers.entries()) {
     const k = key.toLowerCase()
@@ -247,7 +255,8 @@ async function proxyRoute(
   target: string,
   denoTarget: DenoRouteTarget | null,
 ): Promise<RouteProxyResult> {
-  const res = await proxy(request, target)
+  const subKey = getSubdomainKey(new URL(request.url).hostname)
+  const res = await proxy(request, target, proxyTimeoutMsForSubdomain(subKey))
   return {
     response: res,
     target,

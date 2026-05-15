@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import worker, { type Env } from '../src/worker'
+import worker, { proxyTimeoutMsForSubdomain, type Env } from '../src/worker'
 
 const originalFetch = globalThis.fetch
 
@@ -8,6 +8,12 @@ afterEach(() => {
 })
 
 describe('worker Deno service routing', () => {
+  test('gives ai service routes enough time for long model requests', () => {
+    expect(proxyTimeoutMsForSubdomain('ai')).toBe(120_000)
+    expect(proxyTimeoutMsForSubdomain('preview-ai')).toBe(120_000)
+    expect(proxyTimeoutMsForSubdomain('pay')).toBe(30_000)
+  })
+
   test('routes service traffic directly to Deno 2', async () => {
     const targets: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
