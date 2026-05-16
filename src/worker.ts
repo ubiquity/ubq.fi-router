@@ -12,6 +12,7 @@ import {
   resolveDenoUrl,
 } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+import { buildSitemap } from './sitemap'
 
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
@@ -24,6 +25,7 @@ const DEFAULT_PROXY_TIMEOUT_MS = 30_000
 const AI_PROXY_TIMEOUT_MS = 120_000
 
 export interface Env {
+  GITHUB_TOKEN?: string
   // Optional env vars to control logging without code changes
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
@@ -76,6 +78,11 @@ export default {
         } catch {}
       }
       return withRouterRevision(json({ status: 'ok', time: new Date().toISOString() }))
+    }
+
+    // Sitemap endpoints
+    if (url.pathname === '/sitemap.xml' || url.pathname === '/sitemap.json') {
+      return handleSitemap(url.pathname, env.GITHUB_TOKEN)
     }
 
     if (url.pathname.startsWith('/rpc/')) {
@@ -287,4 +294,28 @@ function shortHash(input: string): string {
     h = (h * 31 + ch.charCodeAt(0)) >>> 0
   }
   return h.toString(16).padStart(4, '0').slice(0, 4)
+}
+
+async function handleSitemap(pathname: string, githubToken?: string): Promise<Response> {
+  try {
+    const { xml, json: jsonSitemap } = await buildSitemap(githubToken)
+    if (pathname === '/sitemap.xml') {
+      return new Response(xml, {
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+        },
+      })
+    } else {
+      return new Response(JSON.stringify(jsonSitemap, null, 2), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+        },
+      })
+    }
+  } catch (err) {
+    console.error('Sitemap generation failed:', err)
+    return new Response('Sitemap generation error', { status: 500 })
+  }
 }
