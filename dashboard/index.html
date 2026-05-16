@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Health Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <h1>🏥 Health Dashboard</h1>
+            <div class="status-badge" id="overallStatus">Checking...</div>
+        </header>
+
+        <main>
+            <section class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-icon">⚡</div>
+                    <div class="metric-content">
+                        <h3>API Response Time</h3>
+                        <div class="metric-value" id="responseTime">--</div>
+                        <div class="metric-label">ms average</div>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-icon">✅</div>
+                    <div class="metric-content">
+                        <h3>Success Rate</h3>
+                        <div class="metric-value" id="successRate">--</div>
+                        <div class="metric-label">% requests</div>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-icon">🔄</div>
+                    <div class="metric-content">
+                        <h3>Requests/min</h3>
+                        <div class="metric-value" id="requestRate">--</div>
+                        <div class="metric-label">current load</div>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-icon">⚠️</div>
+                    <div class="metric-content">
+                        <h3>Error Count</h3>
+                        <div class="metric-value" id="errorCount">--</div>
+                        <div class="metric-label">last hour</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="services-section">
+                <h2>Service Status</h2>
+                <div class="services-list" id="servicesList">
+                    <!-- Dynamically populated -->
+                </div>
+            </section>
+
+            <section class="chart-section">
+                <h2>Response Time Trend</h2>
+                <canvas id="trendChart"></canvas>
+            </section>
+        </main>
+
+        <footer>
+            <span>Last updated: <span id="lastUpdated">--</span></span>
+            <button onclick="refreshData()">🔄 Refresh</button>
+        </footer>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
