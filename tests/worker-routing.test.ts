@@ -8,6 +8,47 @@ afterEach(() => {
 })
 
 describe('worker Deno service routing', () => {
+  test('serves a user-facing health dashboard on health.ubq.fi', async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      return new Response(null, { status: 204 })
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://health.ubq.fi/'), {} as Env)
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+    expect(body).toContain('UBQ.FI Health Dashboard')
+    expect(body).toContain('Router health endpoint')
+    expect(body).toContain('Command plugin route')
+    expect(body).toContain('/health.json')
+  })
+
+  test('serves health check JSON with degraded status when a check fails', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init)
+      if (req.url === 'https://ubq.fi/__health') {
+        return new Response('ok', { status: 200 })
+      }
+      if (req.url === 'https://pay.ubq.fi/') {
+        return new Response('upstream down', { status: 503 })
+      }
+      return new Response(null, { status: req.method === 'OPTIONS' ? 204 : 204 })
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://health.ubq.fi/health.json'), {} as Env)
+    const body = await res.json() as {
+      status: string
+      checks: Array<{ name: string; ok: boolean; status: number | null }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(body.status).toBe('degraded')
+    expect(body.checks.find((check) => check.name === 'Router health endpoint')?.ok).toBe(true)
+    expect(body.checks.find((check) => check.name === 'Pay service route')?.ok).toBe(false)
+  })
+
   test('gives ai service routes enough time for long model requests', () => {
     expect(proxyTimeoutMsForSubdomain('ai')).toBe(120_000)
     expect(proxyTimeoutMsForSubdomain('preview-ai')).toBe(120_000)

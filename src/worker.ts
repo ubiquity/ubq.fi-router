@@ -22,6 +22,8 @@ const ROUTER_REVISION =
     : 'local'
 const DEFAULT_PROXY_TIMEOUT_MS = 30_000
 const AI_PROXY_TIMEOUT_MS = 120_000
+const HEALTH_DASHBOARD_HOST = 'health.ubq.fi'
+const HEALTH_CHECK_TIMEOUT_MS = 5_000
 
 export interface Env {
   // Optional env vars to control logging without code changes
@@ -31,6 +33,71 @@ export interface Env {
 }
 
 type LogKind = 'route' | 'rpc' | 'health'
+
+type HealthCheckConfig = Readonly<{
+  name: string
+  type: 'router' | 'service' | 'plugin' | 'rpc'
+  url: string
+  method?: 'GET' | 'HEAD' | 'OPTIONS'
+  okStatuses?: readonly number[]
+}>
+
+type HealthCheckResult = Readonly<{
+  name: string
+  type: HealthCheckConfig['type']
+  url: string
+  method: string
+  ok: boolean
+  status: number | null
+  ms: number
+  error?: string
+}>
+
+const HEALTH_CHECKS: readonly HealthCheckConfig[] = [
+  {
+    name: 'Router health endpoint',
+    type: 'router',
+    url: 'https://ubq.fi/__health',
+    okStatuses: [200],
+  },
+  {
+    name: 'Root service route',
+    type: 'service',
+    url: 'https://ubq.fi/',
+    method: 'HEAD',
+  },
+  {
+    name: 'Pay service route',
+    type: 'service',
+    url: 'https://pay.ubq.fi/',
+    method: 'HEAD',
+  },
+  {
+    name: 'Work service route',
+    type: 'service',
+    url: 'https://work.ubq.fi/',
+    method: 'HEAD',
+  },
+  {
+    name: 'AI service route',
+    type: 'service',
+    url: 'https://ai.ubq.fi/',
+    method: 'HEAD',
+  },
+  {
+    name: 'Command plugin route',
+    type: 'plugin',
+    url: 'https://os-command-config.ubq.fi/manifest.json',
+    method: 'HEAD',
+  },
+  {
+    name: 'RPC same-origin preflight',
+    type: 'rpc',
+    url: 'https://ubq.fi/rpc/1',
+    method: 'OPTIONS',
+    okStatuses: [204],
+  },
+]
 
 function parseRate(value: string | undefined, fallback = 0): number {
   const n = Number(value)
@@ -60,6 +127,10 @@ function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+
+    if (url.hostname === HEALTH_DASHBOARD_HOST) {
+      return handleHealthDashboard(request, url)
+    }
 
     if (url.pathname === '/__health') {
       if (shouldLog('health', request, url, env)) {
@@ -157,6 +228,172 @@ function json(obj: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   })
+}
+
+async function handleHealthDashboard(request: Request, url: URL): Promise<Response> {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return withRouterRevision(new Response('Method Not Allowed', {
+      status: 405,
+      headers: { Allow: 'GET, HEAD' },
+    }))
+  }
+
+  if (url.pathname !== '/' && url.pathname !== '/health.json') {
+    return withRouterRevision(new Response('Not Found', { status: 404 }))
+  }
+
+  const checks = await runHealthChecks()
+  const payload = {
+    status: checks.every((check) => check.ok) ? 'ok' : 'degraded',
+    generated: new Date().toISOString(),
+    revision: ROUTER_REVISION,
+    checks,
+  }
+
+  if (url.pathname === '/health.json') {
+    return withRouterRevision(json(payload))
+  }
+
+  const body = renderHealthDashboard(payload)
+  return withRouterRevision(new Response(request.method === 'HEAD' ? null : body, {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  }))
+}
+
+async function runHealthChecks(): Promise<HealthCheckResult[]> {
+  return Promise.all(HEALTH_CHECKS.map(runHealthCheck))
+}
+
+async function runHealthCheck(check: HealthCheckConfig): Promise<HealthCheckResult> {
+  const started = Date.now()
+  const method = check.method || 'GET'
+  try {
+    const response = await fetch(check.url, {
+      method,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
+    })
+    return {
+      name: check.name,
+      type: check.type,
+      url: check.url,
+      method,
+      ok: isHealthyStatus(response.status, check.okStatuses),
+      status: response.status,
+      ms: Date.now() - started,
+    }
+  } catch (err) {
+    return {
+      name: check.name,
+      type: check.type,
+      url: check.url,
+      method,
+      ok: false,
+      status: null,
+      ms: Date.now() - started,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+function isHealthyStatus(status: number, okStatuses?: readonly number[]): boolean {
+  if (okStatuses) return okStatuses.includes(status)
+  return status >= 200 && status < 500
+}
+
+function renderHealthDashboard(payload: {
+  status: string
+  generated: string
+  revision: string
+  checks: readonly HealthCheckResult[]
+}): string {
+  const rows = payload.checks.map((check) => {
+    const statusText = check.status === null ? 'error' : String(check.status)
+    const note = check.error ? `<span class="error">${escapeHtml(check.error)}</span>` : ''
+    return `<tr>
+      <td><span class="pill ${check.ok ? 'ok' : 'bad'}">${check.ok ? 'ok' : 'down'}</span></td>
+      <td>${escapeHtml(check.name)}</td>
+      <td>${escapeHtml(check.type)}</td>
+      <td><code>${escapeHtml(check.method)}</code></td>
+      <td><a href="${escapeHtml(check.url)}">${escapeHtml(check.url)}</a>${note}</td>
+      <td>${escapeHtml(statusText)}</td>
+      <td>${check.ms}ms</td>
+    </tr>`
+  }).join('')
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="60">
+  <title>UBQ.FI Health Dashboard</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f8fb; color: #172033; }
+    main { max-width: 1120px; margin: 0 auto; padding: 32px 20px 48px; }
+    h1 { margin: 0 0 8px; font-size: 32px; line-height: 1.15; }
+    .summary { margin: 0 0 24px; color: #5b667a; }
+    .panel { overflow-x: auto; background: #fff; border: 1px solid #dde3ee; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; min-width: 840px; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid #edf1f7; text-align: left; vertical-align: top; }
+    th { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #68758b; background: #f9fbfe; }
+    tr:last-child td { border-bottom: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    a { color: #2455d6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .pill { display: inline-block; min-width: 42px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; text-align: center; }
+    .ok { color: #075e39; background: #dff8eb; }
+    .bad { color: #8a1d1d; background: #fde2e2; }
+    .error { display: block; margin-top: 4px; color: #8a1d1d; font-size: 12px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #10141d; color: #edf2fb; }
+      .summary { color: #a8b1c2; }
+      .panel { background: #171d29; border-color: #2d3648; }
+      th, td { border-color: #293244; }
+      th { color: #b5bed0; background: #141a25; }
+      a { color: #8fb0ff; }
+      .ok { color: #bdf4d4; background: #143c2b; }
+      .bad { color: #ffc4c4; background: #4a1f22; }
+      .error { color: #ffc4c4; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>UBQ.FI Health Dashboard</h1>
+    <p class="summary">Status: <strong>${escapeHtml(payload.status)}</strong> · Generated ${escapeHtml(payload.generated)} · Revision ${escapeHtml(payload.revision)} · <a href="/health.json">JSON</a></p>
+    <div class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Check</th>
+            <th>Type</th>
+            <th>Method</th>
+            <th>Target</th>
+            <th>HTTP</th>
+            <th>Latency</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>`
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 async function handleRpc(request: Request, url: URL, env: Env): Promise<Response> {
