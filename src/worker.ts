@@ -12,6 +12,11 @@ import {
   resolveDenoUrl,
 } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+import {
+  decorateHtmlWithRevision,
+  isHtmlResponse,
+  repositoryUrlForHost,
+} from './utils/revision-footer'
 
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
@@ -241,7 +246,32 @@ async function proxy(request: Request, targetUrl: string, timeoutMs: number): Pr
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }))
+  return decorateResponseWithRevision(request, res)
+}
+
+async function decorateResponseWithRevision(request: Request, response: Response): Promise<Response> {
+  if (!isHtmlResponse(response.headers)) {
+    return withRouterRevision(new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    }))
+  }
+
+  const headers = new Headers(response.headers)
+  headers.delete('content-length')
+  const html = await response.text()
+  const repositoryUrl = repositoryUrlForHost(new URL(request.url).hostname)
+  const decoratedHtml = decorateHtmlWithRevision(html, {
+    revision: ROUTER_REVISION,
+    repositoryUrl,
+  })
+
+  return withRouterRevision(new Response(decoratedHtml, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  }))
 }
 
 type RouteProxyResult = Readonly<{
