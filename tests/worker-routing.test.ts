@@ -31,6 +31,50 @@ describe('worker Deno service routing', () => {
     expect(targets).toEqual(['https://ai-ubq-fi.ubiquity-dao.deno.net/v1/models?limit=1'])
   })
 
+  test('appends router revision footer to HTML responses', async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('<!doctype html><html><body><main>ok</main></body></html>', {
+      headers: { 'content-type': 'text/html; charset=utf-8', 'content-length': '55' },
+    })) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://work.ubq.fi/'), {} as Env)
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-uos-router-revision')).toBe('local')
+    expect(res.headers.get('content-length')).toBe(null)
+    expect(body).toContain('id="bottom-right"')
+    expect(body).toContain('id="git-revision"')
+    expect(body).toContain('https://github.com/ubiquity/work.ubq.fi')
+    expect(body).toContain('<main>ok</main><div id="bottom-right"')
+  })
+
+  test('populates existing git revision link instead of duplicating the footer', async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('<!doctype html><html><body><div id="bottom-right"><a href="#" id="git-revision" target="_blank"></a></div></body></html>', {
+      headers: { 'content-type': 'text/html' },
+    })) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://pay.ubq.fi/'), {} as Env)
+    const body = await res.text()
+
+    expect(body.match(/id="bottom-right"/g)).toHaveLength(1)
+    expect(body.match(/id="git-revision"/g)).toHaveLength(1)
+    expect(body).toContain('href="https://github.com/ubiquity/pay.ubq.fi"')
+    expect(body).toContain('>local</a>')
+  })
+
+  test('does not append router revision footer to non-HTML responses', async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{"ok":true}', {
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://api.ubq.fi/status'), {} as Env)
+    const body = await res.text()
+
+    expect(res.headers.get('x-uos-router-revision')).toBe('local')
+    expect(body).toBe('{"ok":true}')
+    expect(body).not.toContain('git-revision')
+  })
+
   test('passes Deno 2 missing-deployment responses through without Classic fallback', async () => {
     const targets: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

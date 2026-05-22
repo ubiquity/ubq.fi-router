@@ -16,6 +16,7 @@ import { buildPluginUrl } from './utils/build-plugin-url'
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
 const ROUTER_REVISION_HEADER = 'x-uos-router-revision'
+const GITHUB_ORG_URL = 'https://github.com/ubiquity'
 const ROUTER_REVISION =
   typeof __UOS_ROUTER_REVISION__ === 'string' && __UOS_ROUTER_REVISION__.length > 0
     ? __UOS_ROUTER_REVISION__
@@ -241,7 +242,84 @@ async function proxy(request: Request, targetUrl: string, timeoutMs: number): Pr
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }))
+  return decorateProxiedResponse(
+    request,
+    new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
+  )
+}
+
+async function decorateProxiedResponse(request: Request, response: Response): Promise<Response> {
+  const withRevision = withRouterRevision(response)
+  if (!shouldAppendRouterFooter(request, withRevision)) {
+    return withRevision
+  }
+
+  const html = await withRevision.text()
+  const headers = new Headers(withRevision.headers)
+  headers.delete('content-length')
+  return new Response(appendRouterFooter(html, request), {
+    status: withRevision.status,
+    statusText: withRevision.statusText,
+    headers,
+  })
+}
+
+function shouldAppendRouterFooter(request: Request, response: Response): boolean {
+  if (request.method === 'HEAD') return false
+  const contentType = response.headers.get('content-type')?.toLowerCase() || ''
+  if (!contentType.includes('text/html')) return false
+
+  // Leave encoded response bodies untouched to avoid corrupting compressed upstream assets.
+  if (response.headers.has('content-encoding')) return false
+
+  return response.status >= 200 && response.status < 300
+}
+
+function appendRouterFooter(html: string, request: Request): string {
+  const footer = buildRouterFooter(request)
+  const existingRevisionLink = /<a\b([^>]*\bid=["']git-revision["'][^>]*)>.*?<\/a>/is
+  if (existingRevisionLink.test(html)) {
+    return html.replace(existingRevisionLink, footer.link)
+  }
+
+  const bodyClose = /<\/body\s*>/i
+  if (bodyClose.test(html)) {
+    return html.replace(bodyClose, `${footer.block}</body>`)
+  }
+  return `${html}${footer.block}`
+}
+
+function buildRouterFooter(request: Request): { link: string; block: string } {
+  const revision = escapeHtml(ROUTER_REVISION)
+  const displayRevision = escapeHtml(ROUTER_REVISION === 'local' ? ROUTER_REVISION : ROUTER_REVISION.slice(0, 7))
+  const repositoryUrl = buildAppRepositoryUrl(request)
+  const href = ROUTER_REVISION === 'local'
+    ? repositoryUrl
+    : `${repositoryUrl}/commit/${encodeURIComponent(ROUTER_REVISION)}`
+  const escapedHref = escapeHtml(href)
+  const link = `<a href="${escapedHref}" id="git-revision" target="_blank" rel="noopener noreferrer">${displayRevision}</a>`
+  const styles = '<style>#bottom-right{position:fixed;bottom:4px;right:4px;z-index:2147483647}#bottom-right a{text-align:center;text-transform:uppercase;letter-spacing:2px;text-rendering:geometricPrecision;vertical-align:middle;opacity:.25;font-size:12px;color:#fff;text-decoration:none;display:inline-block;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-shadow:0 1px 2px #000}#bottom-right a:hover{opacity:1}</style>'
+
+  return {
+    link,
+    block: `<div id="bottom-right" data-uos-router-revision="${revision}">${link}</div>${styles}`,
+  }
+}
+
+function buildAppRepositoryUrl(request: Request): string {
+  const hostname = new URL(request.url).hostname
+  const subdomain = getSubdomainKey(hostname).replace(/^preview-/, '')
+  const repo = subdomain.length > 0 ? `${subdomain}.ubq.fi` : 'ubq.fi'
+  return `${GITHUB_ORG_URL}/${repo}`
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 type RouteProxyResult = Readonly<{
