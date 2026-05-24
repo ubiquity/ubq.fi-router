@@ -28,6 +28,7 @@ describe('worker Deno service routing', () => {
     expect(res.headers.get('x-uos-router-revision')).toBe('local')
     expect(res.headers.get('x-target-host')).toBe('ai-ubq-fi.ubiquity-dao.deno.net')
     expect(res.headers.get('x-uos-deno-classic-fallback')).toBe(null)
+    expect(await res.text()).toBe('ok')
     expect(targets).toEqual(['https://ai-ubq-fi.ubiquity-dao.deno.net/v1/models?limit=1'])
   })
 
@@ -64,5 +65,39 @@ describe('worker Deno service routing', () => {
     expect(await res.text()).toBe('preview ok')
     expect(res.headers.get('x-target-host')).toBe('p-pay-ubq-fi.deno.dev')
     expect(targets).toEqual(['https://p-pay-ubq-fi.deno.dev/path?x=1'])
+  })
+
+  test('appends the router revision footer to successful HTML app responses', async () => {
+    globalThis.fetch = (async () => new Response('<html><body><main>app</main></body></html>', {
+      headers: {
+        'content-length': '42',
+        'content-type': 'text/html; charset=utf-8',
+      },
+    })) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://pay.ubq.fi/'), {} as Env)
+    const html = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-uos-router-revision')).toBe('local')
+    expect(res.headers.get('content-length')).toBe(null)
+    expect(html).toContain('<main>app</main>')
+    expect(html).toContain('id="uos-router-revision"')
+    expect(html).toContain('https://github.com/ubiquity/ubq.fi-router')
+    expect(html).toContain('>local</a>')
+  })
+
+  test('does not append the router revision footer to non-HTML responses', async () => {
+    globalThis.fetch = (async () => new Response('{"ok":true}', {
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://pay.ubq.fi/api/status'), {} as Env)
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-uos-router-revision')).toBe('local')
+    expect(body).toBe('{"ok":true}')
+    expect(body).not.toContain('uos-router-revision')
   })
 })

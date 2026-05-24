@@ -20,6 +20,7 @@ const ROUTER_REVISION =
   typeof __UOS_ROUTER_REVISION__ === 'string' && __UOS_ROUTER_REVISION__.length > 0
     ? __UOS_ROUTER_REVISION__
     : 'local'
+const ROUTER_REPO_URL = 'https://github.com/ubiquity/ubq.fi-router'
 const DEFAULT_PROXY_TIMEOUT_MS = 30_000
 const AI_PROXY_TIMEOUT_MS = 120_000
 
@@ -241,7 +242,38 @@ async function proxy(request: Request, targetUrl: string, timeoutMs: number): Pr
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }))
+  const response = new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
+  return withRouterRevision(await withRevisionFooter(response, request))
+}
+
+async function withRevisionFooter(response: Response, request: Request): Promise<Response> {
+  if (request.method === 'HEAD') return response
+  if (response.status < 200 || response.status >= 300) return response
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  if (!contentType.includes('text/html')) return response
+
+  const html = await response.text()
+  const footer = renderRevisionFooter()
+  const bodyCloseTag = /<\/body\s*>/i
+  const updatedHtml = bodyCloseTag.test(html)
+    ? html.replace(bodyCloseTag, `${footer}</body>`)
+    : `${html}${footer}`
+  const headers = new Headers(response.headers)
+  headers.delete('content-length')
+  return new Response(updatedHtml, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+function renderRevisionFooter(): string {
+  const revision = ROUTER_REVISION.trim() || 'local'
+  const shortRevision = revision === 'local' ? revision : revision.slice(0, 7)
+  const href = revision === 'local'
+    ? ROUTER_REPO_URL
+    : `${ROUTER_REPO_URL}/commit/${encodeURIComponent(revision)}`
+  return `<div id="uos-router-revision"><a href="${href}" target="_blank" rel="noopener noreferrer" aria-label="Router revision ${shortRevision}">${shortRevision}</a></div><style>#uos-router-revision{position:fixed;right:18px;bottom:14px;z-index:2147483647;font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;letter-spacing:.04em;text-transform:uppercase;opacity:.35;transition:opacity .15s ease}#uos-router-revision:hover{opacity:1}#uos-router-revision a{color:inherit;text-decoration:none}#uos-router-revision a:hover{text-decoration:underline}@media(max-width:640px){#uos-router-revision{display:none}}</style>`
 }
 
 type RouteProxyResult = Readonly<{
