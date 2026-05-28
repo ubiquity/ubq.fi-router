@@ -8,6 +8,44 @@ afterEach(() => {
 })
 
 describe('worker Deno service routing', () => {
+  test('serves a health dashboard on health.ubq.fi', async () => {
+    const targets: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init)
+      targets.push(req.url)
+      return new Response('ok')
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://health.ubq.fi/'), {
+      HEALTH_TARGETS: JSON.stringify([
+        { name: 'Pay', kind: 'app', url: 'https://pay.ubq.fi/__health' },
+        { name: 'RPC', kind: 'rpc', url: 'https://rpc.ubq.fi/1' },
+      ]),
+    } as Env)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+    expect(await res.text()).toContain('UBQ.FI Health')
+    expect(targets).toEqual(['https://pay.ubq.fi/__health', 'https://rpc.ubq.fi/1'])
+  })
+
+  test('serves health dashboard JSON and reports degraded targets', async () => {
+    globalThis.fetch = (async () => {
+      return new Response('missing', { status: 500 })
+    }) as unknown as typeof fetch
+
+    const res = await worker.fetch(new Request('https://health.ubq.fi/status.json'), {
+      HEALTH_TARGETS: JSON.stringify([
+        { name: 'Broken', url: 'https://broken.ubq.fi/__health' },
+      ]),
+    } as Env)
+    const body = await res.json() as any
+
+    expect(res.status).toBe(503)
+    expect(body.status).toBe('degraded')
+    expect(body.targets[0].status).toBe(500)
+  })
+
   test('gives ai service routes enough time for long model requests', () => {
     expect(proxyTimeoutMsForSubdomain('ai')).toBe(120_000)
     expect(proxyTimeoutMsForSubdomain('preview-ai')).toBe(120_000)

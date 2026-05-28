@@ -28,9 +28,28 @@ export interface Env {
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
   LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
+  HEALTH_TARGETS?: string // JSON array of { name, url, kind? } entries for health.ubq.fi
 }
 
 type LogKind = 'route' | 'rpc' | 'health'
+type HealthTarget = Readonly<{
+  name: string
+  url: string
+  kind?: string
+}>
+type HealthResult = HealthTarget & Readonly<{
+  ok: boolean
+  status?: number
+  ms: number
+  error?: string
+}>
+
+const DEFAULT_HEALTH_TARGETS: HealthTarget[] = [
+  { name: 'ubq.fi', kind: 'app', url: 'https://ubq.fi/__health' },
+  { name: 'pay.ubq.fi', kind: 'app', url: 'https://pay.ubq.fi/__health' },
+  { name: 'work.ubq.fi', kind: 'app', url: 'https://work.ubq.fi/__health' },
+  { name: 'rpc.ubq.fi', kind: 'rpc', url: 'https://rpc.ubq.fi/1' },
+]
 
 function parseRate(value: string | undefined, fallback = 0): number {
   const n = Number(value)
@@ -60,6 +79,10 @@ function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+
+    if (url.hostname === 'health.ubq.fi' || url.pathname === '/__health/dashboard') {
+      return handleHealthDashboard(request, url, env)
+    }
 
     if (url.pathname === '/__health') {
       if (shouldLog('health', request, url, env)) {
@@ -140,6 +163,135 @@ export default {
       return withRouterRevision(new Response('Upstream error', { status: 502 }))
     }
   }
+}
+
+async function handleHealthDashboard(request: Request, url: URL, env: Env): Promise<Response> {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return withRouterRevision(new Response('Method not allowed', {
+      status: 405,
+      headers: { Allow: 'GET, HEAD' },
+    }))
+  }
+
+  const targets = getHealthTargets(env)
+  const checkedAt = new Date().toISOString()
+  const results = await Promise.all(targets.map(checkHealthTarget))
+  const ok = results.every((result) => result.ok)
+  const body = {
+    status: ok ? 'ok' : 'degraded',
+    checkedAt,
+    revision: ROUTER_REVISION,
+    targets: results,
+  }
+
+  if (url.pathname.endsWith('.json') || url.searchParams.get('format') === 'json') {
+    return withRouterRevision(json(body, ok ? 200 : 503))
+  }
+
+  return withRouterRevision(new Response(request.method === 'HEAD' ? null : renderHealthDashboard(body), {
+    status: ok ? 200 : 503,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  }))
+}
+
+function getHealthTargets(env: Env): HealthTarget[] {
+  if (!env.HEALTH_TARGETS) return DEFAULT_HEALTH_TARGETS
+  try {
+    const parsed = JSON.parse(env.HEALTH_TARGETS)
+    if (!Array.isArray(parsed)) return DEFAULT_HEALTH_TARGETS
+    const targets = parsed
+      .filter((item): item is HealthTarget => {
+        return item &&
+          typeof item.name === 'string' &&
+          typeof item.url === 'string' &&
+          (!item.kind || typeof item.kind === 'string') &&
+          /^https:\/\//.test(item.url)
+      })
+      .slice(0, 50)
+    return targets.length > 0 ? targets : DEFAULT_HEALTH_TARGETS
+  } catch {
+    return DEFAULT_HEALTH_TARGETS
+  }
+}
+
+async function checkHealthTarget(target: HealthTarget): Promise<HealthResult> {
+  const started = Date.now()
+  try {
+    const response = await fetch(target.url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(5_000),
+    })
+    return {
+      ...target,
+      ok: response.status >= 200 && response.status < 400,
+      status: response.status,
+      ms: Date.now() - started,
+    }
+  } catch (error) {
+    return {
+      ...target,
+      ok: false,
+      ms: Date.now() - started,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+function renderHealthDashboard(report: {
+  status: string
+  checkedAt: string
+  revision: string
+  targets: HealthResult[]
+}): string {
+  const rows = report.targets.map((target) => {
+    const status = target.ok ? 'ok' : 'degraded'
+    const statusText = target.status ? String(target.status) : target.error || 'error'
+    return `<tr class="${status}"><td>${escapeHtml(target.name)}</td><td>${escapeHtml(target.kind || 'service')}</td><td>${escapeHtml(statusText)}</td><td>${target.ms}ms</td><td><a href="${escapeHtml(target.url)}">${escapeHtml(target.url)}</a></td></tr>`
+  }).join('')
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UBQ.FI Health</title>
+  <style>
+    body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:#f7f8fb;color:#121417}
+    main{max-width:980px;margin:0 auto;padding:40px 20px}
+    h1{font-size:40px;margin:0 0 8px}.meta{color:#5d6673;margin-bottom:24px}
+    .badge{display:inline-block;border-radius:999px;padding:6px 12px;font-weight:700;background:${report.status === 'ok' ? '#d7f7e3' : '#ffe1e1'};color:${report.status === 'ok' ? '#116b34' : '#9a1d1d'}}
+    table{width:100%;border-collapse:collapse;background:white;border:1px solid #dfe3ea;border-radius:8px;overflow:hidden}
+    th,td{text-align:left;padding:12px;border-bottom:1px solid #edf0f4;font-size:14px}th{background:#f0f3f8;color:#384151}
+    tr:last-child td{border-bottom:0}.ok td:first-child{border-left:4px solid #22a45a}.degraded td:first-child{border-left:4px solid #db3b3b}
+    a{color:#225fc2;word-break:break-all}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>UBQ.FI Health</h1>
+    <p class="meta"><span class="badge">${escapeHtml(report.status)}</span> Checked ${escapeHtml(report.checkedAt)} · revision ${escapeHtml(report.revision)}</p>
+    <table>
+      <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Latency</th><th>Target</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </main>
+</body>
+</html>`
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      default: return '&#39;'
+    }
+  })
 }
 
 function withRouterRevision(response: Response): Response {
