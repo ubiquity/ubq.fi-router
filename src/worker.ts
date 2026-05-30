@@ -12,6 +12,7 @@ import {
   resolveDenoUrl,
 } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+import { buildJsonPluginMap, buildJsonSitemap, renderSitemapXml } from './sitemap'
 
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
@@ -76,6 +77,23 @@ export default {
         } catch {}
       }
       return withRouterRevision(json({ status: 'ok', time: new Date().toISOString() }))
+    }
+
+    if (url.pathname === '/sitemap.xml') {
+      return withRouterRevision(new Response(renderSitemapXml(), {
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': 'public, max-age=300',
+        },
+      }))
+    }
+
+    if (url.pathname === '/sitemap.json') {
+      return withRouterRevision(json(buildJsonSitemap()))
+    }
+
+    if (url.pathname === '/plugins.json') {
+      return withRouterRevision(json(buildJsonPluginMap()))
     }
 
     if (url.pathname.startsWith('/rpc/')) {
