@@ -65,4 +65,56 @@ describe('worker Deno service routing', () => {
     expect(res.headers.get('x-target-host')).toBe('p-pay-ubq-fi.deno.dev')
     expect(targets).toEqual(['https://p-pay-ubq-fi.deno.dev/path?x=1'])
   })
+
+  test('injects revision footer into app html responses', async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      return new Response('<html><body><main>Pay</main></body></html>', {
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          etag: 'W/"abcdef1234567890"',
+        },
+      })
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://pay.ubq.fi/'), {} as Env)
+    const html = await res.text()
+
+    expect(html).toContain('id="git-revision"')
+    expect(html).toContain('abcdef123456')
+    expect(html).toContain('href="https://github.com/ubiquity/pay.ubq.fi"')
+    expect(html).toContain('https://pay-ubq-fi.ubiquity-dao.deno.net/')
+    expect(res.headers.get('content-length')).toBe(null)
+  })
+
+  test('populates existing work-style revision anchor without duplicating it', async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      return new Response('<html><body><div id="bottom-right"><a href="#" id="git-revision" target="_blank"></a></div></body></html>', {
+        headers: {
+          'content-type': 'text/html',
+          'x-uos-app-revision': 'fedcba987654321',
+        },
+      })
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://work.ubq.fi/'), {} as Env)
+    const html = await res.text()
+
+    expect(html.match(/id="git-revision"/g)?.length).toBe(1)
+    expect(html).toContain('fedcba987654')
+    expect(html).toContain('href="https://github.com/ubiquity/work.ubq.fi"')
+  })
+
+  test('does not inject revision footer into non-html responses', async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const res = await worker.fetch(new Request('https://pay.ubq.fi/api'), {} as Env)
+    const body = await res.text()
+
+    expect(body).toBe(JSON.stringify({ ok: true }))
+    expect(body).not.toContain('git-revision')
+  })
 })

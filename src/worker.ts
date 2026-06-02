@@ -16,6 +16,7 @@ import { buildPluginUrl } from './utils/build-plugin-url'
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
 const ROUTER_REVISION_HEADER = 'x-uos-router-revision'
+const APP_REVISION_ANCHOR_ID = 'git-revision'
 const ROUTER_REVISION =
   typeof __UOS_ROUTER_REVISION__ === 'string' && __UOS_ROUTER_REVISION__.length > 0
     ? __UOS_ROUTER_REVISION__
@@ -255,13 +256,119 @@ async function proxyRoute(
   target: string,
   denoTarget: DenoRouteTarget | null,
 ): Promise<RouteProxyResult> {
-  const subKey = getSubdomainKey(new URL(request.url).hostname)
+  const url = new URL(request.url)
+  const subKey = getSubdomainKey(url.hostname)
   const res = await proxy(request, target, proxyTimeoutMsForSubdomain(subKey))
   return {
-    response: res,
+    response: await appendRevisionFooter(res, request, target, subKey, isPluginDomain(url.hostname)),
     target,
     denoRouteKind: denoTarget?.kind,
   }
+}
+
+async function appendRevisionFooter(
+  response: Response,
+  request: Request,
+  target: string,
+  subKey: string,
+  isPlugin: boolean,
+): Promise<Response> {
+  if (request.method === 'HEAD') return response
+  if (!isHtmlResponse(response)) return response
+
+  const html = await response.text()
+  const revision = getAppRevision(response.headers, target)
+  const repoUrl = getRepoUrl(subKey, isPlugin)
+  const footer = buildRevisionFooter(revision, repoUrl, target)
+  const nextHtml = html.match(new RegExp(`id=["']${APP_REVISION_ANCHOR_ID}["']`, 'i'))
+    ? updateExistingRevisionAnchor(html, revision, repoUrl, target)
+    : injectBeforeBodyEnd(html, footer)
+
+  const headers = new Headers(response.headers)
+  headers.delete('content-length')
+  return new Response(nextHtml, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+function isHtmlResponse(response: Response): boolean {
+  return (response.headers.get('content-type') || '').toLowerCase().includes('text/html')
+}
+
+function getAppRevision(headers: Headers, target: string): string {
+  const explicitRevision =
+    headers.get('x-uos-app-revision') ||
+    headers.get('x-app-revision') ||
+    headers.get('x-deno-deployment-id') ||
+    headers.get('etag')
+
+  if (explicitRevision) {
+    return explicitRevision.replace(/^W\//, '').replace(/^"|"$/g, '').slice(0, 12)
+  }
+
+  return new URL(target).hostname
+}
+
+function getRepoUrl(subKey: string, isPlugin: boolean): string {
+  const name = subKey.replace(/^preview-/, '')
+  if (isPlugin) {
+    return `https://github.com/ubiquity-os-marketplace/${name}`
+  }
+  return `https://github.com/ubiquity/${name || 'ubq'}.ubq.fi`
+}
+
+function buildRevisionFooter(revision: string, repoUrl: string, target: string): string {
+  const safeRevision = escapeHtml(revision)
+  const safeRepoUrl = escapeHtml(repoUrl)
+  const safeTarget = escapeHtml(target)
+
+  return `
+<style id="uos-revision-footer-style">
+  #bottom-right { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; display: flex; gap: 8px; align-items: center; }
+  #${APP_REVISION_ANCHOR_ID} { color: inherit; opacity: 0.68; font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
+  #${APP_REVISION_ANCHOR_ID}:hover { opacity: 1; text-decoration: underline; }
+</style>
+<div id="bottom-right"><a href="${safeRepoUrl}" id="${APP_REVISION_ANCHOR_ID}" target="_blank" rel="noopener noreferrer" title="${safeTarget}">${safeRevision}</a></div>`
+}
+
+function updateExistingRevisionAnchor(html: string, revision: string, repoUrl: string, target: string): string {
+  const safeRevision = escapeHtml(revision)
+  const safeRepoUrl = escapeHtml(repoUrl)
+  const safeTarget = escapeHtml(target)
+
+  return html.replace(
+    /<a\b([^>]*\bid=["']git-revision["'][^>]*)>[\s\S]*?<\/a>/i,
+    (_match, attrs: string) => {
+      const nextAttrs = upsertAttribute(upsertAttribute(upsertAttribute(attrs, 'href', safeRepoUrl), 'title', safeTarget), 'rel', 'noopener noreferrer')
+      return `<a${nextAttrs}>${safeRevision}</a>`
+    },
+  )
+}
+
+function upsertAttribute(attrs: string, name: string, value: string): string {
+  const pattern = new RegExp(`\\s${name}=(["']).*?\\1`, 'i')
+  if (pattern.test(attrs)) {
+    return attrs.replace(pattern, ` ${name}="${value}"`)
+  }
+  return `${attrs} ${name}="${value}"`
+}
+
+function injectBeforeBodyEnd(html: string, fragment: string): string {
+  if (/<\/body>/i.test(html)) {
+    return html.replace(/<\/body>/i, `${fragment}</body>`)
+  }
+  return `${html}${fragment}`
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 function buildPreviewUrl(subKey: string, url: URL): string {
