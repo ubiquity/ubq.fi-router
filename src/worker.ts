@@ -20,6 +20,7 @@ const ROUTER_REVISION =
   typeof __UOS_ROUTER_REVISION__ === 'string' && __UOS_ROUTER_REVISION__.length > 0
     ? __UOS_ROUTER_REVISION__
     : 'local'
+const ROUTER_REPOSITORY_URL = 'https://github.com/ubiquity/ubq.fi-router'
 const DEFAULT_PROXY_TIMEOUT_MS = 30_000
 const AI_PROXY_TIMEOUT_MS = 120_000
 
@@ -152,6 +153,69 @@ function withRouterRevision(response: Response): Response {
   })
 }
 
+async function withFooterRevision(response: Response): Promise<Response> {
+  const contentType = response.headers.get('content-type') || ''
+  if (!/\btext\/html\b/i.test(contentType)) return response
+
+  const html = await response.text()
+  const rewritten = injectFooterRevision(html)
+  const headers = new Headers(response.headers)
+  if (rewritten !== html) headers.delete('content-length')
+
+  return new Response(rewritten, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+function injectFooterRevision(html: string): string {
+  const href = revisionHref()
+  const label = `Revision ${ROUTER_REVISION}`
+  const revisionLink = `<a id="git-revision" href="${escapeHtmlAttribute(href)}" rel="noopener noreferrer" target="_blank">${escapeHtml(label)}</a>`
+
+  if (/\bid=(['"])git-revision\1/i.test(html)) {
+    return html.replace(/<a\b([^>]*\bid=(['"])git-revision\2[^>]*)>([\s\S]*?)<\/a>/gi, (match, attrs: string) => {
+      const withoutHref = attrs.replace(/\s+href=(['"])[\s\S]*?\1/i, '')
+      const normalizedAttrs = withoutHref.replace(/\s+target=(['"])[\s\S]*?\1/i, '').replace(/\s+rel=(['"])[\s\S]*?\1/i, '')
+      return `<a${normalizedAttrs} href="${escapeHtmlAttribute(href)}" rel="noopener noreferrer" target="_blank">${escapeHtml(label)}</a>`
+    })
+  }
+
+  if (/<\/footer>/i.test(html)) {
+    return html.replace(/<\/footer>/gi, `${revisionLink}</footer>`)
+  }
+
+  const revisionFooter = `<footer data-uos-router-revision="true">${revisionLink}</footer>`
+  if (/<\/body>/i.test(html)) {
+    return html.replace(/<\/body>/i, `${revisionFooter}</body>`)
+  }
+
+  return `${html}${revisionFooter}`
+}
+
+function revisionHref(): string {
+  return ROUTER_REVISION === 'local'
+    ? ROUTER_REPOSITORY_URL
+    : `${ROUTER_REPOSITORY_URL}/commit/${encodeURIComponent(ROUTER_REVISION)}`
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"]/g, (char) => {
+    switch (char) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      default: return char
+    }
+  })
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return escapeHtml(value).replace(/'/g, '&#39;')
+}
+
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
     status,
@@ -241,7 +305,8 @@ async function proxy(request: Request, targetUrl: string, timeoutMs: number): Pr
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }))
+  const response = new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })
+  return withRouterRevision(await withFooterRevision(response))
 }
 
 type RouteProxyResult = Readonly<{
