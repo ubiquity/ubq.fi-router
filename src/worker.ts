@@ -157,6 +157,9 @@ async function withFooterRevision(response: Response): Promise<Response> {
   const contentType = response.headers.get('content-type') || ''
   if (!/\btext\/html\b/i.test(contentType)) return response
 
+  // 204/304/HEAD responses have no body; skip rewrite to avoid synthetic footer HTML
+  if (response.body === null || response.status === 204 || response.status === 304) return response
+
   const html = await response.text()
   const rewritten = injectFooterRevision(html)
   const headers = new Headers(response.headers)
