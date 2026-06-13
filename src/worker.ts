@@ -12,6 +12,7 @@ import {
   resolveDenoUrl,
 } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+import { handleRouteMap } from './sitemap'
 
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
@@ -60,6 +61,11 @@ function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+
+    const routeMapResponse = await handleRouteMap(url)
+    if (routeMapResponse) {
+      return withRouterRevision(routeMapResponse)
+    }
 
     if (url.pathname === '/__health') {
       if (shouldLog('health', request, url, env)) {
