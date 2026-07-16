@@ -31,6 +31,37 @@ describe('worker Deno service routing', () => {
     expect(targets).toEqual(['https://ai-ubq-fi.ubiquity-dao.deno.net/v1/models?limit=1'])
   })
 
+  test('appends revision footer to HTML app responses', async () => {
+    globalThis.fetch = (async () => {
+      return new Response('<html><body><main>ok</main></body></html>', {
+        headers: { 'content-type': 'text/html', 'content-length': '40' },
+      })
+    }) as unknown as typeof fetch
+
+    const res = await worker.fetch(new Request('https://pay.ubq.fi/'), {} as Env)
+    const html = await res.text()
+
+    expect(res.headers.get('x-uos-router-revision')).toBe('local')
+    expect(res.headers.get('content-length')).toBe(null)
+    expect(html).toContain('<footer data-uos-router-revision')
+    expect(html).toContain('https://github.com/ubiquity/ubq.fi-router/tree/local')
+    expect(html.indexOf('<footer data-uos-router-revision')).toBeLessThan(html.indexOf('</body>'))
+  })
+
+  test('does not append revision footer to non-HTML app responses', async () => {
+    globalThis.fetch = (async () => {
+      return new Response('{"ok":true}', {
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    const res = await worker.fetch(new Request('https://pay.ubq.fi/status'), {} as Env)
+    const body = await res.text()
+
+    expect(res.headers.get('x-uos-router-revision')).toBe('local')
+    expect(body).toBe('{"ok":true}')
+  })
+
   test('passes Deno 2 missing-deployment responses through without Classic fallback', async () => {
     const targets: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

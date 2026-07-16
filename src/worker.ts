@@ -16,6 +16,7 @@ import { buildPluginUrl } from './utils/build-plugin-url'
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
 const ROUTER_REVISION_HEADER = 'x-uos-router-revision'
+const ROUTER_REPOSITORY_URL = 'https://github.com/ubiquity/ubq.fi-router'
 const ROUTER_REVISION =
   typeof __UOS_ROUTER_REVISION__ === 'string' && __UOS_ROUTER_REVISION__.length > 0
     ? __UOS_ROUTER_REVISION__
@@ -152,6 +153,32 @@ function withRouterRevision(response: Response): Response {
   })
 }
 
+async function withRouterFooter(response: Response): Promise<Response> {
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  if (!contentType.includes('text/html') || !response.body) {
+    return response
+  }
+
+  const headers = new Headers(response.headers)
+  headers.delete('content-length')
+  const html = await response.text()
+  const footer = [
+    '<footer data-uos-router-revision style="position:fixed;right:12px;bottom:12px;z-index:2147483647;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#52525b;background:rgba(255,255,255,.92);border:1px solid rgba(113,113,122,.35);border-radius:8px;padding:6px 8px;box-shadow:0 4px 18px rgba(0,0,0,.12)">',
+    `<a href="${ROUTER_REPOSITORY_URL}/tree/${ROUTER_REVISION}" style="color:inherit;text-decoration:none" target="_blank" rel="noopener noreferrer">rev ${ROUTER_REVISION}</a>`,
+    '</footer>',
+  ].join('')
+  const bodyCloseIndex = html.toLowerCase().lastIndexOf('</body>')
+  const body = bodyCloseIndex === -1
+    ? `${html}${footer}`
+    : `${html.slice(0, bodyCloseIndex)}${footer}${html.slice(bodyCloseIndex)}`
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
     status,
@@ -241,7 +268,7 @@ async function proxy(request: Request, targetUrl: string, timeoutMs: number): Pr
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }))
+  return withRouterFooter(withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers })))
 }
 
 type RouteProxyResult = Readonly<{
