@@ -9,8 +9,8 @@ afterEach(() => {
 
 describe('worker Deno service routing', () => {
   test('gives ai service routes enough time for long model requests', () => {
-    expect(proxyTimeoutMsForSubdomain('ai')).toBe(120_000)
-    expect(proxyTimeoutMsForSubdomain('preview-ai')).toBe(120_000)
+    expect(proxyTimeoutMsForSubdomain('ai')).toBe(270_000)
+    expect(proxyTimeoutMsForSubdomain('preview-ai')).toBe(270_000)
     expect(proxyTimeoutMsForSubdomain('pay')).toBe(30_000)
   })
 

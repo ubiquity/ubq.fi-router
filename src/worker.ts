@@ -21,7 +21,7 @@ const ROUTER_REVISION =
     ? __UOS_ROUTER_REVISION__
     : 'local'
 const DEFAULT_PROXY_TIMEOUT_MS = 30_000
-const AI_PROXY_TIMEOUT_MS = 120_000
+const AI_PROXY_TIMEOUT_MS = 270_000
 
 export interface Env {
   // Optional env vars to control logging without code changes
@@ -137,6 +137,15 @@ export default {
         denoRouteKind: denoTarget?.kind,
         message: err instanceof Error ? err.message : String(err)
       }))
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        return withRouterRevision(json({
+          error: {
+            message: 'The router timed out waiting for upstream response headers.',
+            type: 'server_error',
+            code: 'router_upstream_timeout',
+          },
+        }, 504))
+      }
       return withRouterRevision(new Response('Upstream error', { status: 502 }))
     }
   }
@@ -240,7 +249,8 @@ async function proxy(request: Request, targetUrl: string, timeoutMs: number): Pr
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     init.body = request.clone().body
   }
-  const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)])
+  const res = await fetch(new Request(targetUrl, init), { signal })
   return withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }))
 }
 
