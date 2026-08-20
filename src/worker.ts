@@ -12,6 +12,11 @@ import {
   resolveDenoUrl,
 } from './utils/build-deno-url'
 import { buildPluginUrl } from './utils/build-plugin-url'
+import {
+  generateSitemapXml,
+  generateSitemapJson,
+  generatePluginsJson,
+} from './utils/sitemap'
 
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
@@ -76,6 +81,28 @@ export default {
         } catch {}
       }
       return withRouterRevision(json({ status: 'ok', time: new Date().toISOString() }))
+    }
+
+    // Dynamic Sitemaps & Plugin Maps (XML and JSON)
+    if (url.pathname === '/sitemap.xml') {
+      const xml = generateSitemapXml()
+      return withRouterRevision(new Response(xml, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+        },
+      }))
+    }
+
+    if (url.pathname === '/sitemap.json' || url.pathname === '/sitemap') {
+      const sitemapData = generateSitemapJson()
+      return withRouterRevision(json(sitemapData, 200, 'public, max-age=3600, s-maxage=3600'))
+    }
+
+    if (url.pathname === '/plugins.json' || url.pathname === '/api/plugins') {
+      const pluginsData = generatePluginsJson()
+      return withRouterRevision(json(pluginsData, 200, 'public, max-age=3600, s-maxage=3600'))
     }
 
     if (url.pathname.startsWith('/rpc/')) {
@@ -152,10 +179,10 @@ function withRouterRevision(response: Response): Response {
   })
 }
 
-function json(obj: unknown, status = 200): Response {
+function json(obj: unknown, status = 200, cacheControl = 'no-store'): Response {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': cacheControl }
   })
 }
 
