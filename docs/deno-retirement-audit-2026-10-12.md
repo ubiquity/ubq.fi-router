@@ -60,10 +60,13 @@ was returning 503 before this migration.
 - auth.ubq.fi, health.ubq.fi, and checkout.ubq.fi are VPS-hosted with no
   Cloudflare worker: their dead Deno workflows are left in place pending an
   explicit decision (their runbook is the VPS service list above).
-- Deno-only leftovers retired on 2026-10-12: `RETIRE_DENO=1` makes the VPS the
-  only origin for mapped hosts and answers `410 service_retired` for Deno-only
-  hosts (previews, plugins, unmapped subdomains). No live path reaches Deno
-  Deploy anymore; unsetting the flag restores the fallback if ever needed.
+- Deno is fully removed: the router's Deno URL builders, plugin/preview
+  mappings, and the `RETIRE_DENO` flag were deleted (PR #49), leaving a VPS-only
+  worker that answers `410 service_retired` for anything without a VPS origin.
+  The two stale `_acme-challenge` CNAMEs pointing at `deno.net`/`deno.dev` were
+  deleted, so the ubq.fi zone has no Deno references left. Routing today:
+  Cloudflare workers for the app hosts, DNS-only straight to the VPS for
+  `rpc.ubq.fi` (Caddy TLS, no Cloudflare hop by design).
 
 ## Runbook
 
