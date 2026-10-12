@@ -44,8 +44,10 @@ was returning 503 before this migration.
   and the auth hub's 117 entries were exported intact.
 - pay.ubq.fi cutover is blocked on `SUPABASE_SERVICE_ROLE_KEY` (a Deno secret
   whose value the platform does not expose); the claim endpoint port follows.
-- Deno-only leftovers to retire before 2027-04: the router's fallback leg for
-  auth/ai/checkout, the Deno preview mapping, and plugin `*.deno.dev` hosting.
+- Deno-only leftovers retired on 2026-10-12: `RETIRE_DENO=1` makes the VPS the
+  only origin for mapped hosts and answers `410 service_retired` for Deno-only
+  hosts (previews, plugins, unmapped subdomains). No live path reaches Deno
+  Deploy anymore; unsetting the flag restores the fallback if ever needed.
 
 ## Runbook
 

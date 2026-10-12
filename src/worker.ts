@@ -42,6 +42,11 @@ export interface Env {
   VPS_ORIGIN_MAP?: string
   /** Seconds a failed origin stays marked degraded before it is retried. */
   VPS_DEGRADED_TTL_SECONDS?: string
+  /**
+   * "1" retires every Deno Deploy target: mapped hosts try the VPS only, and
+   * hosts with no VPS origin answer 410 instead of proxying to Deno.
+   */
+  RETIRE_DENO?: string
 }
 
 type LogKind = 'route' | 'rpc' | 'health'
@@ -112,7 +117,12 @@ export default {
 
     const started = Date.now()
     const vpsOriginHost = parseVpsOriginMap(env.VPS_ORIGIN_MAP)[inHost]
-    const plans = buildOriginPlans(url, denoTarget, target, vpsOriginHost)
+    const retireDeno = parseRetireDeno(env.RETIRE_DENO)
+    const plans = buildOriginPlans(url, denoTarget, target, vpsOriginHost, retireDeno)
+    if (plans.length === 0) {
+      // Deno is retired and this host has no VPS origin: nothing serves it.
+      return withRouterRevision(json({ error: 'service_retired', host: inHost }, 410))
+    }
     const degradedKey = `${inHost}::${vpsOriginHost ?? 'deno'}`
     const degradedTtlMs = parseDegradedTtlMs(env.VPS_DEGRADED_TTL_SECONDS)
 
@@ -362,11 +372,17 @@ export function parseDegradedTtlMs(raw: string | undefined): number {
  * Ordered origins for a request: the VPS primary when the host is mapped,
  * then the existing Deno Deploy target as the fallback.
  */
+export function parseRetireDeno(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true'
+}
+
 export function buildOriginPlans(
   url: URL,
   denoTarget: DenoRouteTarget | null,
   denoTargetUrl: string,
   vpsOriginHost: string | undefined,
+  retireDeno = false,
 ): OriginPlan[] {
   const plans: OriginPlan[] = []
   if (vpsOriginHost) {
@@ -375,6 +391,9 @@ export function buildOriginPlans(
       url: `https://${vpsOriginHost}${url.pathname}${url.search}`,
       denoRouteKind: denoTarget?.kind,
     })
+  }
+  if (retireDeno) {
+    return plans
   }
   plans.push({ kind: 'deno', url: denoTargetUrl, denoRouteKind: denoTarget?.kind })
   return plans
