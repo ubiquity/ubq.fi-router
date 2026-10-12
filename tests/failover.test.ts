@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import worker, {
   parseDegradedTtlMs,
+  parseRetireDeno,
   parseVpsOriginMap,
   resetOriginHealth,
   type Env,
@@ -150,5 +151,53 @@ describe('worker origin failover', () => {
 
     expect(res.status).toBe(502)
     expect(res.headers.get('x-uos-router-revision')).toBe('local')
+  })
+})
+
+describe('parseRetireDeno', () => {
+  test('accepts only explicit truthy flags', () => {
+    expect(parseRetireDeno('1')).toBe(true)
+    expect(parseRetireDeno('true')).toBe(true)
+    expect(parseRetireDeno('TRUE')).toBe(true)
+    expect(parseRetireDeno(undefined)).toBe(false)
+    expect(parseRetireDeno('0')).toBe(false)
+    expect(parseRetireDeno('yes')).toBe(false)
+  })
+})
+
+describe('worker Deno retirement', () => {
+  const retiredEnv = { VPS_ORIGIN_MAP: '{"auth.ubq.fi":"origin.ubq.fi"}', RETIRE_DENO: '1' } as Env
+
+  test('mapped hosts serve from the VPS with no Deno fallback', async () => {
+    const calls = mockFetch((req) => new Response(`vps:${new URL(req.url).host}`))
+
+    const res = await worker.fetch(new Request('https://auth.ubq.fi/health'), retiredEnv)
+
+    expect(await res.text()).toBe('vps:origin.ubq.fi')
+    expect(calls).toEqual(['https://origin.ubq.fi/health'])
+    expect(res.headers.get('x-uos-router-origin')).toBe('vps')
+  })
+
+  test('a failing VPS returns 502 without touching Deno', async () => {
+    const calls = mockFetch(() => {
+      throw new Error('vps down')
+    })
+
+    const res = await worker.fetch(new Request('https://auth.ubq.fi/health'), retiredEnv)
+
+    expect(res.status).toBe(502)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('origin.ubq.fi')
+  })
+
+  test('Deno-only hosts answer 410 service_retired with zero fetches', async () => {
+    const calls = mockFetch(() => new Response('should not be reached'))
+
+    const res = await worker.fetch(new Request('https://preview-pay.ubq.fi/'), retiredEnv)
+
+    expect(res.status).toBe(410)
+    const body = (await res.json()) as { error: string; host: string }
+    expect(body).toEqual({ error: 'service_retired', host: 'preview-pay.ubq.fi' })
+    expect(calls).toHaveLength(0)
   })
 })

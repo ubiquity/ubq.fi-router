@@ -39,6 +39,10 @@ Entry point: `src/worker.ts` (module worker).
   request, so upstream writes should stay idempotent for the timeout case.
 - Responses carry `x-uos-router-origin: vps|deno` and, when a fallback served the request,
   `x-uos-router-failover: 1`.
+- `RETIRE_DENO=1` retires every Deno Deploy target: hosts in `VPS_ORIGIN_MAP` are
+  served by the VPS only (a VPS failure answers 502), and hosts with no VPS
+  origin (previews, plugins, unmapped subdomains) answer
+  `410 {"error":"service_retired"}`. Unset restores the Deno fallback.
 
 ## Notes
 

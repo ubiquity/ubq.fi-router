@@ -19,4 +19,7 @@ invocation_logs = true
 [vars]
 # Hosts served by the VPS first, through the DNS-only origin.ubq.fi ingress.
 # Hosts absent here keep the Deno-only path.
+# Deno Deploy targets are retired: mapped hosts are VPS-only and Deno-only
+# hosts answer 410 service_retired.
+RETIRE_DENO = "1"
 VPS_ORIGIN_MAP = '{"auth.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi","checkout.ubq.fi":"origin.ubq.fi","health.ubq.fi":"origin.ubq.fi","probe.ubq.fi":"origin.ubq.fi"}'
