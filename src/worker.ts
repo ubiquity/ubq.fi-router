@@ -1,17 +1,13 @@
 /**
  * UBQ.FI Router — Cloudflare Worker
- * Deterministic routing to Deno Deploy apps; /rpc is same‑origin proxy.
- * Service routes use Deno Deploy 2 directly.
- * No KV, no sticky cookies, no Pages fallback.
+ *
+ * Routes ubq.fi hosts to their VPS origins through the DNS-only origin.ubq.fi
+ * ingress (the VPS selects the app from x-forwarded-host). Deno Deploy is
+ * retired: hosts without a VPS origin answer 410, and /rpc/:chainId stays a
+ * same-origin proxy to https://rpc.ubq.fi.
+ *
+ * No KV, no sticky cookies, no Deno targets.
  */
-
-import { getSubdomainKey } from './utils/get-subdomain-key'
-import { isPluginDomain } from './utils/is-plugin-domain'
-import {
-  type DenoRouteTarget,
-  resolveDenoUrl,
-} from './utils/build-deno-url'
-import { buildPluginUrl } from './utils/build-plugin-url'
 
 declare const __UOS_ROUTER_REVISION__: string | undefined
 
@@ -21,32 +17,25 @@ const ROUTER_REVISION =
     ? __UOS_ROUTER_REVISION__
     : 'local'
 const DEFAULT_PROXY_TIMEOUT_MS = 30_000
-// The live router always allowed 15 minutes for model routes; keep that.
+// Model routes on the VPS gateway can stream for a long time.
 const AI_PROXY_TIMEOUT_MS = 900_000
 const DEFAULT_DEGRADED_TTL_MS = 10_000
 const RETRYABLE_ORIGIN_STATUSES = new Set([502, 503, 504])
 const ORIGIN_HEADER = 'x-uos-router-origin'
-const FAILOVER_HEADER = 'x-uos-router-failover'
 
 export interface Env {
   // Optional env vars to control logging without code changes
-  LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
-  LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
+  LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs
+  LOG_RPC_SAMPLE?: string // 0..1 sampling for RPC logs
   LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
   /**
    * JSON object mapping a public host (for example "auth.ubq.fi") to the VPS
    * origin host that reaches the same app (a DNS-only hostname pointing at the
-   * VPS). The VPS origin is tried first; the existing Deno Deploy target is the
-   * fallback. Hosts absent from the map keep today's Deno-only behavior.
+   * VPS). Hosts absent from the map answer 410 service_retired.
    */
   VPS_ORIGIN_MAP?: string
   /** Seconds a failed origin stays marked degraded before it is retried. */
   VPS_DEGRADED_TTL_SECONDS?: string
-  /**
-   * "1" retires every Deno Deploy target: mapped hosts try the VPS only, and
-   * hosts with no VPS origin answer 410 instead of proxying to Deno.
-   */
-  RETIRE_DENO?: string
 }
 
 type LogKind = 'route' | 'rpc' | 'health'
@@ -64,7 +53,6 @@ function debugRequested(request: Request, url: URL): boolean {
 }
 
 function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean {
-  // Always allow explicit on-demand debugging via header or query param
   if (debugRequested(request, url)) return true
   switch (kind) {
     case 'rpc':
@@ -102,110 +90,70 @@ export default {
     }
 
     const inHost = url.hostname
-    const isPlugin = isPluginDomain(inHost)
-    const subKey = getSubdomainKey(inHost)
-    let denoTarget: DenoRouteTarget | null = null
-    let target: string
-    if (isPlugin) {
-      target = buildPluginUrl(inHost, url)
-    } else if (subKey.startsWith('preview-')) {
-      target = buildPreviewUrl(subKey, url)
-    } else {
-      denoTarget = await resolveDenoUrl(subKey, url)
-      target = denoTarget.url
-    }
-
-    const started = Date.now()
     const vpsOriginHost = parseVpsOriginMap(env.VPS_ORIGIN_MAP)[inHost]
-    const retireDeno = parseRetireDeno(env.RETIRE_DENO)
-    const plans = buildOriginPlans(url, denoTarget, target, vpsOriginHost, retireDeno)
-    if (plans.length === 0) {
-      // Deno is retired and this host has no VPS origin: nothing serves it.
+    if (!vpsOriginHost) {
+      // Deno Deploy is retired and this host has no VPS origin: nothing serves it.
       return withRouterRevision(json({ error: 'service_retired', host: inHost }, 410))
     }
-    const degradedKey = `${inHost}::${vpsOriginHost ?? 'deno'}`
-    const degradedTtlMs = parseDegradedTtlMs(env.VPS_DEGRADED_TTL_SECONDS)
 
-    let lastError: unknown = null
-    for (let index = 0; index < plans.length; index += 1) {
-      const plan = plans[index]
-      const isLastPlan = index === plans.length - 1
-      if (plan.kind === 'vps' && !isLastPlan && originIsDegraded(degradedKey)) {
-        lastError = lastError ?? new Error('origin_degraded')
-        continue
-      }
-      try {
-        const result = await proxyRoute(request, plan, denoTarget)
-        const response = result.response
-        if (plan.kind === 'vps' && !isLastPlan && RETRYABLE_ORIGIN_STATUSES.has(response.status)) {
-          markOriginDegraded(degradedKey, degradedTtlMs)
-          try {
-            await response.body?.cancel()
-          } catch {}
-          lastError = new Error(`origin_status_${response.status}`)
-          continue
-        }
-        if (plan.kind === 'vps') {
-          clearOriginDegraded(degradedKey)
-        }
-        const headers = new Headers(response.headers)
-        headers.set(ORIGIN_HEADER, plan.kind)
-        if (index > 0) {
-          headers.set(FAILOVER_HEADER, '1')
-        }
-        const finalResponse = new Response(response.body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers,
-        })
-        if (shouldLog('route', request, url, env)) {
-          try {
-            const log = {
-              t: new Date().toISOString(),
-              route: isPlugin ? 'plugin' : 'deno',
-              method: request.method,
-              inHost,
-              hostHeader: request.headers.get('host') || undefined,
-              path: url.pathname,
-              hasQuery: url.search.length > 0,
-              target: result.target,
-              targetHost: new URL(result.target).hostname,
-              denoRouteKind: result.denoRouteKind,
-              origin: plan.kind,
-              failover: index > 0,
-              status: finalResponse.status,
-              ms: Date.now() - started,
-              workIncoming: inHost === 'work.ubq.fi',
-              workTarget: !isPlugin && subKey === 'work',
-              cfRay: request.headers.get('cf-ray') || undefined,
-            }
-            // Structured JSON log for easy filtering in Workers Logs
-            console.log(JSON.stringify({ event: 'route', ...log }))
-          } catch {}
-        }
-        return withRouterRevision(finalResponse)
-      } catch (err) {
-        lastError = err
-        if (plan.kind === 'vps' && !isLastPlan) {
-          markOriginDegraded(degradedKey, degradedTtlMs)
-        }
-      }
+    const target = `https://${vpsOriginHost}${url.pathname}${url.search}`
+    const degradedKey = `${inHost}::${vpsOriginHost}`
+    const degradedTtlMs = parseDegradedTtlMs(env.VPS_DEGRADED_TTL_SECONDS)
+    const subKey = inHost.split('.')[0]
+    const started = Date.now()
+
+    if (originIsDegraded(degradedKey)) {
+      return withRouterRevision(json({ error: 'origin_degraded', host: inHost }, 502))
     }
 
-    console.error(JSON.stringify({
-      event: 'route_error',
-      t: new Date().toISOString(),
-      route: isPlugin ? 'plugin' : 'deno',
-      method: request.method,
-      inHost,
-      hostHeader: request.headers.get('host') || undefined,
-      path: url.pathname,
-      targets: plans.map((plan) => plan.url),
-      denoRouteKind: denoTarget?.kind,
-      message: lastError instanceof Error ? lastError.message : String(lastError)
-    }))
-    return withRouterRevision(new Response('Upstream error', { status: 502 }))
-  }
+    try {
+      const response = await proxy(request, target, proxyTimeoutMsForSubdomain(subKey))
+      if (RETRYABLE_ORIGIN_STATUSES.has(response.status)) {
+        markOriginDegraded(degradedKey, degradedTtlMs)
+      } else {
+        clearOriginDegraded(degradedKey)
+      }
+      const headers = new Headers(response.headers)
+      headers.set(ORIGIN_HEADER, 'vps')
+      if (shouldLog('route', request, url, env)) {
+        try {
+          console.log(JSON.stringify({
+            event: 'route',
+            t: new Date().toISOString(),
+            method: request.method,
+            inHost,
+            hostHeader: request.headers.get('host') || undefined,
+            path: url.pathname,
+            hasQuery: url.search.length > 0,
+            target,
+            targetHost: new URL(target).hostname,
+            origin: 'vps',
+            status: response.status,
+            ms: Date.now() - started,
+            cfRay: request.headers.get('cf-ray') || undefined,
+          }))
+        } catch {}
+      }
+      return withRouterRevision(new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      }))
+    } catch (err) {
+      markOriginDegraded(degradedKey, degradedTtlMs)
+      console.error(JSON.stringify({
+        event: 'route_error',
+        t: new Date().toISOString(),
+        method: request.method,
+        inHost,
+        hostHeader: request.headers.get('host') || undefined,
+        path: url.pathname,
+        target,
+        message: err instanceof Error ? err.message : String(err),
+      }))
+      return withRouterRevision(new Response('Upstream error', { status: 502 }))
+    }
+  },
 }
 
 function withRouterRevision(response: Response): Response {
@@ -221,7 +169,7 @@ function withRouterRevision(response: Response): Response {
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   })
 }
 
@@ -239,8 +187,8 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-        'Access-Control-Max-Age': '86400'
-      }
+        'Access-Control-Max-Age': '86400',
+      },
     }))
   }
 
@@ -251,55 +199,50 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
     if (k === 'host' || k === 'origin' || k === 'referer') continue
     headers.set(key, value)
   }
-  const init: RequestInit = {
+  const started = Date.now()
+  const resp = await fetch(new Request(targetUrl, {
     method: request.method,
     headers,
     body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
-    redirect: 'manual'
-  }
-  const started = Date.now()
-  const resp = await fetch(new Request(targetUrl, init))
+    redirect: 'manual',
+  }))
   const outHeaders = new Headers(resp.headers)
   outHeaders.set('Access-Control-Allow-Origin', '*')
   outHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
   outHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-  // RPC traffic can be very high-volume; sample heavily by default.
   if (shouldLog('rpc', request, url, env)) {
     try {
-      const inHost = new URL(request.url).hostname
-      const log = {
+      console.log(JSON.stringify({
+        event: 'route',
         t: new Date().toISOString(),
         route: 'rpc',
         method: request.method,
-        inHost,
-        hostHeader: request.headers.get('host') || undefined,
+        inHost: url.hostname,
         path: url.pathname,
-        hasQuery: url.search.length > 0,
         target: targetUrl,
-        targetHost: 'rpc.ubq.fi',
         status: resp.status,
         ms: Date.now() - started,
-        workIncoming: inHost === 'work.ubq.fi',
         cfRay: request.headers.get('cf-ray') || undefined,
-      }
-      console.log(JSON.stringify({ event: 'route', ...log }))
+      }))
     } catch {}
   }
-  return withRouterRevision(new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders }))
+  return withRouterRevision(new Response(resp.body, {
+    status: resp.status,
+    statusText: resp.statusText,
+    headers: outHeaders,
+  }))
 }
 
 export function proxyTimeoutMsForSubdomain(subKey: string): number {
-  return subKey === 'ai' || subKey === 'preview-ai'
-    ? AI_PROXY_TIMEOUT_MS
-    : DEFAULT_PROXY_TIMEOUT_MS
+  return subKey === 'ai' ? AI_PROXY_TIMEOUT_MS : DEFAULT_PROXY_TIMEOUT_MS
 }
 
 async function proxy(request: Request, targetUrl: string, timeoutMs: number): Promise<Response> {
   const headers = new Headers()
   for (const [key, value] of request.headers.entries()) {
     const k = key.toLowerCase()
-    // Match the live router: strip only the hop headers below. Origin and
-    // Cookie must reach the app (session and hub origin-guard flows need them).
+    // Strip only the hop headers; Origin and Cookie must reach the app
+    // (session and hub origin-guard flows depend on them).
     if (k === 'host' || k === 'referer' || k === 'cf-ray') continue
     headers.set(key, value)
   }
@@ -311,34 +254,8 @@ async function proxy(request: Request, targetUrl: string, timeoutMs: number): Pr
     init.body = request.clone().body
   }
   const res = await fetch(new Request(targetUrl, init), { signal: AbortSignal.timeout(timeoutMs) })
-  return withRouterRevision(new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }))
+  return res
 }
-
-type RouteProxyResult = Readonly<{
-  response: Response
-  target: string
-  denoRouteKind?: DenoRouteTarget['kind']
-}>
-
-async function proxyRoute(
-  request: Request,
-  plan: OriginPlan,
-  denoTarget: DenoRouteTarget | null,
-): Promise<RouteProxyResult> {
-  const subKey = getSubdomainKey(new URL(request.url).hostname)
-  const res = await proxy(request, plan.url, proxyTimeoutMsForSubdomain(subKey))
-  return {
-    response: res,
-    target: plan.url,
-    denoRouteKind: denoTarget?.kind,
-  }
-}
-
-export type OriginPlan = Readonly<{
-  kind: 'vps' | 'deno'
-  url: string
-  denoRouteKind?: DenoRouteTarget['kind']
-}>
 
 /** Parse the VPS origin map totally: malformed input yields an empty map. */
 export function parseVpsOriginMap(raw: string | undefined): Record<string, string> {
@@ -368,39 +285,8 @@ export function parseDegradedTtlMs(raw: string | undefined): number {
   return Math.min(seconds * 1000, 300_000)
 }
 
-/**
- * Ordered origins for a request: the VPS primary when the host is mapped,
- * then the existing Deno Deploy target as the fallback.
- */
-export function parseRetireDeno(value: string | undefined): boolean {
-  const normalized = value?.trim().toLowerCase()
-  return normalized === '1' || normalized === 'true'
-}
-
-export function buildOriginPlans(
-  url: URL,
-  denoTarget: DenoRouteTarget | null,
-  denoTargetUrl: string,
-  vpsOriginHost: string | undefined,
-  retireDeno = false,
-): OriginPlan[] {
-  const plans: OriginPlan[] = []
-  if (vpsOriginHost) {
-    plans.push({
-      kind: 'vps',
-      url: `https://${vpsOriginHost}${url.pathname}${url.search}`,
-      denoRouteKind: denoTarget?.kind,
-    })
-  }
-  if (retireDeno) {
-    return plans
-  }
-  plans.push({ kind: 'deno', url: denoTargetUrl, denoRouteKind: denoTarget?.kind })
-  return plans
-}
-
-// Isolate-local degraded markers: cheap, no bindings, and each isolate stops
-// hammering a failed origin within the first retry cycle.
+// Isolate-local degraded markers: cheap, no bindings, and the isolate stops
+// hammering a failed origin for the TTL.
 const degradedOrigins = new Map<string, number>()
 
 export function markOriginDegraded(key: string, ttlMs: number): void {
@@ -423,29 +309,4 @@ export function clearOriginDegraded(key: string): void {
 
 export function resetOriginHealth(): void {
   degradedOrigins.clear()
-}
-
-function buildPreviewUrl(subKey: string, url: URL): string {
-  const base = subKey.replace(/^preview-/, '')
-  const project = buildPreviewProject(base)
-  return `https://${project}.deno.dev${url.pathname}${url.search}`
-}
-
-function buildPreviewProject(base: string): string {
-  // Keep total length <= 26: p- + base + -ubq-fi (2 + len + 7)
-  let name = base
-  if (name.length > 17) {
-    const hash = shortHash(name)
-    name = `${name.slice(0, 12)}-${hash}`
-  }
-  return `p-${name}-ubq-fi`
-}
-
-function shortHash(input: string): string {
-  // Lightweight deterministic hash, 4 hex chars
-  let h = 0
-  for (const ch of input) {
-    h = (h * 31 + ch.charCodeAt(0)) >>> 0
-  }
-  return h.toString(16).padStart(4, '0').slice(0, 4)
 }
