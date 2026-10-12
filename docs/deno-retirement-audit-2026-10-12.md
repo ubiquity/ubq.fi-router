@@ -21,7 +21,7 @@ was returning 503 before this migration.
 | notifications.ubq.fi | Cloudflare worker `notifications-ubq-fi` (assets) | root/style/bundle/manifest 200 |
 | demo.ubq.fi | Cloudflare worker `demo-ubq-fi` (assets, SPA) | root 200 `Demo | UbiquityOS`, `/dist/scripts/logger.js` 200 |
 | onboard.ubq.fi | Cloudflare worker `onboard-ubq-fi` (assets, SPA) | root 200 `Onboarding | UbiquityOS`, `/dist/scripts/onboarding/onboarding.js` 200 |
-| pay.ubq.fi | *staged*, not cut over: worker `pay-ubq-fi` on workers.dev | root/assets/SPA verified on workers.dev; `pay.ubq.fi` still 503 |
+| pay.ubq.fi | Cloudflare worker `pay-ubq-fi`, cut over 2026-10-12 | root 200 `Ubiquity Rewards`, assets and SPA route 200; claim endpoint answers the documented `Supabase not configured` until `SUPABASE_SERVICE_ROLE_KEY` arrives |
 | card.ubq.fi | Cloudflare worker `card-ubq-fi` (assets, SPA) | root 200 `Ubiquity Rewards | Ubiquity DAO`, deep-link 200 |
 | keygen.ubq.fi | Cloudflare worker `keygen-ubq-fi` (assets, SPA) | root 200 `Key Generator`, deep-link 200 |
 | work.ubq.fi | Cloudflare worker `work-ubq-fi` (assets, SPA) | root 200 `DevPool Directory | Ubiquity DAO`, deep-link 200 |
@@ -42,11 +42,12 @@ was returning 503 before this migration.
   auth and checkout use the UBQ KV service (`kv.ubq.fi`, Cloudflare D1) with the
   `ubq-kv` worker; checkout's single production KV entry (its JWS signing key)
   and the auth hub's 117 entries were exported intact.
-- pay.ubq.fi cutover is deferred by the owner until `SUPABASE_URL` and
-  `SUPABASE_SERVICE_ROLE_KEY` are available (Deno secrets are write-only and no
-  other source is authorized). The worker, assets, and the ported claim handler
-  (4/4 tests) are live on workers.dev; `pay.ubq.fi` answers the retirement's
-  `410 service_retired` until the cutover.
+- pay.ubq.fi is cut over: `SUPABASE_URL` is set (recovered from the estate's
+  shared project), the UI/assets/SPA are live, and the ported claim handler
+  (4/4 tests) is deployed. `SUPABASE_SERVICE_ROLE_KEY` remains with the owner;
+  the anon key cannot substitute (a targeted no-op update proved RLS filters
+  anonymous UPDATEs). A Pi/VPS sweep found no service-role key anywhere in the
+  estate's env files.
 - Repository CI (owner-approved replacement): the 11 Cloudflare-served repos now
   carry `.github/workflows/cloudflare-deploy.yml` instead of the dead Deno
   workflow. It runs on push and manually, builds (per-repo command and Supabase
