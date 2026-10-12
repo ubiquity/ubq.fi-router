@@ -65,3 +65,15 @@ was returning 503 before this migration.
 - Rollbacks: router deploys are versioned in Cloudflare; VPS services can be
   stopped per unit; the auth hub keeps `/var/lib/ubiquity-auth/kv.sqlite3` as its
   pre-D1 snapshot.
+
+## Final sweep (2026-10-12, post-retirement)
+
+All 15 migrated hosts return 200 and `rpc.ubq.fi` answers `eth_chainId`:
+
+- 200: ubq.fi, auth.ubq.fi/health, ai.ubq.fi/health, app.prospector.sh/api/health,
+  checkout.ubq.fi/api/health, health.ubq.fi/api/apps, stake, xp, notifications,
+  demo, onboard, card, keygen, work, partner.
+- rpc.ubq.fi POST /1 -> {"result":"0x1"}.
+- pay.ubq.fi answers the router's 410 `service_retired` (the Deno app it used to
+  reach is retired; the replacement worker is staged and waits on
+  SUPABASE_SERVICE_ROLE_KEY). This is the only host not yet served.
