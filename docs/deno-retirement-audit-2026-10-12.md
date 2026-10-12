@@ -42,8 +42,15 @@ was returning 503 before this migration.
   auth and checkout use the UBQ KV service (`kv.ubq.fi`, Cloudflare D1) with the
   `ubq-kv` worker; checkout's single production KV entry (its JWS signing key)
   and the auth hub's 117 entries were exported intact.
-- pay.ubq.fi cutover is blocked on `SUPABASE_SERVICE_ROLE_KEY` (a Deno secret
-  whose value the platform does not expose); the claim endpoint port follows.
+- pay.ubq.fi cutover is deferred by the owner until `SUPABASE_URL` and
+  `SUPABASE_SERVICE_ROLE_KEY` are available (Deno secrets are write-only and no
+  other source is authorized). The worker, assets, and the ported claim handler
+  (4/4 tests) are live on workers.dev; `pay.ubq.fi` answers the retirement's
+  `410 service_retired` until the cutover.
+- Repository CI note: the `deno-deploy*` workflows still present in the migrated
+  repos point at the retired Deno project and fail on push. They are dead;
+  removal or replacement with Cloudflare deploys needs an owner decision (a
+  Cloudflare API token secret would be required per repo for automated deploys).
 - Deno-only leftovers retired on 2026-10-12: `RETIRE_DENO=1` makes the VPS the
   only origin for mapped hosts and answers `410 service_retired` for Deno-only
   hosts (previews, plugins, unmapped subdomains). No live path reaches Deno
