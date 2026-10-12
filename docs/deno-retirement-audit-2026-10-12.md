@@ -22,8 +22,11 @@ was returning 503 before this migration.
 | demo.ubq.fi | Cloudflare worker `demo-ubq-fi` (assets, SPA) | root 200 `Demo | UbiquityOS`, `/dist/scripts/logger.js` 200 |
 | onboard.ubq.fi | Cloudflare worker `onboard-ubq-fi` (assets, SPA) | root 200 `Onboarding | UbiquityOS`, `/dist/scripts/onboarding/onboarding.js` 200 |
 | pay.ubq.fi | *staged*, not cut over: worker `pay-ubq-fi` on workers.dev | root/assets/SPA verified on workers.dev; `pay.ubq.fi` still 503 |
-| card, keygen, partner, work | not migrated yet (static SPAs; builds need the shared Supabase values) | reachable only through the router's Deno fallback |
-| health.ubq.fi | not migrated yet (dynamic server `src/server/index.ts`) | - |
+| card.ubq.fi | Cloudflare worker `card-ubq-fi` (assets, SPA) | root 200 `Ubiquity Rewards | Ubiquity DAO`, deep-link 200 |
+| keygen.ubq.fi | Cloudflare worker `keygen-ubq-fi` (assets, SPA) | root 200 `Key Generator`, deep-link 200 |
+| work.ubq.fi | Cloudflare worker `work-ubq-fi` (assets, SPA) | root 200 `DevPool Directory | Ubiquity DAO`, deep-link 200 |
+| partner.ubq.fi | Cloudflare worker `partner-ubq-fi` (Next.js static export, 404.html) | root 200, missing path 404 |
+| health.ubq.fi | VPS `ubiquity-health.service` (8022) via the router | `/api/apps` `/` `/json` all 200 with `x-uos-router-origin: vps` |
 | `os-*.ubq.fi` plugins | routed to `*.deno.dev` by the router | plugin deployments are gone (`DEPLOYMENT_NOT_FOUND`) |
 | preview hosts (`preview-*`, `p-*`) | router Deno preview mapping | unused since the suspension |
 
