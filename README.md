@@ -15,34 +15,19 @@ Entry point: `src/worker.ts` (module worker).
 
 ## Routing Rules
 
-- Services
-  - `ubq.fi` → `https://ubq-fi.ubiquity-dao.deno.net`
-  - `<sub>.ubq.fi` → `https://<sub>-ubq-fi.ubiquity-dao.deno.net`
-  - Missing Deno 2 deployments are returned directly from Deno; there is no Deploy Classic fallback for service routes.
-- Plugins (`os-*.ubq.fi`)
-  - `os-<plugin>.ubq.fi` → `<plugin>-main.deno.dev`
-  - `os-<plugin>-main.ubq.fi` → `<plugin>-main.deno.dev`
-  - `os-<plugin>-dev[elopment].ubq.fi` → `<plugin>-development.deno.dev`
-- RPC (same origin)
-  - `/rpc/:chainId` → proxied to `https://rpc.ubq.fi/:chainId`
-
-## VPS primary with Deno fallback
-
-- `VPS_ORIGIN_MAP` is a JSON object mapping a public host to the origin host that reaches
-  the same app on the VPS (a DNS-only hostname pointing at the VPS). Mapped hosts are tried
-  on the VPS first; the existing Deno Deploy target is the fallback. Hosts absent from the
-  map keep today's Deno-only behavior.
-- `VPS_DEGRADED_TTL_SECONDS` (default 10, max 300) is how long an origin is skipped after a
-  failed attempt, so a dead primary is not hammered on every request.
-- Failover triggers before any response body is read: fetch/DNS/timeout errors from the
-  primary and upstream 502/503/504. Bodies are replayed from a clone of the original
-  request, so upstream writes should stay idempotent for the timeout case.
-- Responses carry `x-uos-router-origin: vps|deno` and, when a fallback served the request,
-  `x-uos-router-failover: 1`.
-- `RETIRE_DENO=1` retires every Deno Deploy target: hosts in `VPS_ORIGIN_MAP` are
-  served by the VPS only (a VPS failure answers 502), and hosts with no VPS
-  origin (previews, plugins, unmapped subdomains) answer
-  `410 {"error":"service_retired"}`. Unset restores the Deno fallback.
+- `ubq.fi` and `*.ubq.fi` hosts are served by their own Cloudflare workers where
+  they have one (apex, stake, xp, notifications, demo, onboard, card, keygen,
+  work, partner, pay, kv); the router only handles hosts listed in
+  `VPS_ORIGIN_MAP` (auth, ai, checkout, health) plus the failover canary.
+- Mapped hosts are proxied to `https://origin.ubq.fi` (DNS-only, straight to the
+  VPS) with `x-forwarded-host`, so the VPS Caddy dispatcher picks the app and the
+  app keeps its real host and origin. A failure marks the origin degraded briefly
+  and answers 502; there is no second origin.
+- Hosts with no VPS origin answer `410 {"error":"service_retired"}` — Deno Deploy
+  is retired.
+- `GET|POST /rpc/:chainId` stays a same-origin proxy to `https://rpc.ubq.fi`
+  (the VPS Permit2 RPC proxy) with CORS headers.
+- Responses carry `x-uos-router-revision` and `x-uos-router-origin: vps`.
 
 ## Notes
 
