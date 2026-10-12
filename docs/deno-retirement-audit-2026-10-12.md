@@ -47,10 +47,18 @@ was returning 503 before this migration.
   other source is authorized). The worker, assets, and the ported claim handler
   (4/4 tests) are live on workers.dev; `pay.ubq.fi` answers the retirement's
   `410 service_retired` until the cutover.
-- Repository CI note: the `deno-deploy*` workflows still present in the migrated
-  repos point at the retired Deno project and fail on push. They are dead;
-  removal or replacement with Cloudflare deploys needs an owner decision (a
-  Cloudflare API token secret would be required per repo for automated deploys).
+- Repository CI (owner-approved replacement): the 11 Cloudflare-served repos now
+  carry `.github/workflows/cloudflare-deploy.yml` instead of the dead Deno
+  workflow. It runs on push and manually, builds (per-repo command and Supabase
+  secrets), and deploys through `cloudflare/wrangler-action@v3` pinned to
+  wrangler 4 — gated on the `CF_WORKERS_DEPLOY_TOKEN` secret, so runs stay green
+  until a token with Workers Scripts:Edit for account `5c0228bee3…` is added.
+  The org's existing `CLOUDFLARE_API_TOKEN` secret lacks that access ("No access
+  to the specified service"), so it is not used. Manual `npx wrangler deploy`
+  remains the documented path in each README.
+- auth.ubq.fi, health.ubq.fi, and checkout.ubq.fi are VPS-hosted with no
+  Cloudflare worker: their dead Deno workflows are left in place pending an
+  explicit decision (their runbook is the VPS service list above).
 - Deno-only leftovers retired on 2026-10-12: `RETIRE_DENO=1` makes the VPS the
   only origin for mapped hosts and answers `410 service_retired` for Deno-only
   hosts (previews, plugins, unmapped subdomains). No live path reaches Deno
