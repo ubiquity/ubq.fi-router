@@ -19,4 +19,4 @@ invocation_logs = true
 [vars]
 # Hosts served by the VPS first, through the DNS-only origin.ubq.fi ingress.
 # Hosts absent here keep the Deno-only path.
-VPS_ORIGIN_MAP = '{"auth.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi","checkout.ubq.fi":"origin.ubq.fi","probe.ubq.fi":"origin.ubq.fi"}'
+VPS_ORIGIN_MAP = '{"auth.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi","checkout.ubq.fi":"origin.ubq.fi","health.ubq.fi":"origin.ubq.fi","probe.ubq.fi":"origin.ubq.fi"}'
