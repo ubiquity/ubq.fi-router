@@ -21,13 +21,27 @@ const ROUTER_REVISION =
     ? __UOS_ROUTER_REVISION__
     : 'local'
 const DEFAULT_PROXY_TIMEOUT_MS = 30_000
-const AI_PROXY_TIMEOUT_MS = 120_000
+// The live router always allowed 15 minutes for model routes; keep that.
+const AI_PROXY_TIMEOUT_MS = 900_000
+const DEFAULT_DEGRADED_TTL_MS = 10_000
+const RETRYABLE_ORIGIN_STATUSES = new Set([502, 503, 504])
+const ORIGIN_HEADER = 'x-uos-router-origin'
+const FAILOVER_HEADER = 'x-uos-router-failover'
 
 export interface Env {
   // Optional env vars to control logging without code changes
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs (deno/plugin)
   LOG_RPC_SAMPLE?: string   // 0..1 sampling for RPC logs
   LOG_HEALTH_SAMPLE?: string // 0..1 sampling for health logs
+  /**
+   * JSON object mapping a public host (for example "auth.ubq.fi") to the VPS
+   * origin host that reaches the same app (a DNS-only hostname pointing at the
+   * VPS). The VPS origin is tried first; the existing Deno Deploy target is the
+   * fallback. Hosts absent from the map keep today's Deno-only behavior.
+   */
+  VPS_ORIGIN_MAP?: string
+  /** Seconds a failed origin stays marked degraded before it is retried. */
+  VPS_DEGRADED_TTL_SECONDS?: string
 }
 
 type LogKind = 'route' | 'rpc' | 'health'
@@ -97,48 +111,90 @@ export default {
     }
 
     const started = Date.now()
-    try {
-      const result = await proxyRoute(request, target, denoTarget)
-      const response = result.response
-      if (shouldLog('route', request, url, env)) {
-        try {
-          const log = {
-            t: new Date().toISOString(),
-            route: isPlugin ? 'plugin' : 'deno',
-            method: request.method,
-            inHost,
-            hostHeader: request.headers.get('host') || undefined,
-            path: url.pathname,
-            hasQuery: url.search.length > 0,
-            target: result.target,
-            targetHost: new URL(result.target).hostname,
-            denoRouteKind: result.denoRouteKind,
-            status: response.status,
-            ms: Date.now() - started,
-            workIncoming: inHost === 'work.ubq.fi',
-            workTarget: !isPlugin && subKey === 'work',
-            cfRay: request.headers.get('cf-ray') || undefined,
-          }
-          // Structured JSON log for easy filtering in Workers Logs
-          console.log(JSON.stringify({ event: 'route', ...log }))
-        } catch {}
+    const vpsOriginHost = parseVpsOriginMap(env.VPS_ORIGIN_MAP)[inHost]
+    const plans = buildOriginPlans(url, denoTarget, target, vpsOriginHost)
+    const degradedKey = `${inHost}::${vpsOriginHost ?? 'deno'}`
+    const degradedTtlMs = parseDegradedTtlMs(env.VPS_DEGRADED_TTL_SECONDS)
+
+    let lastError: unknown = null
+    for (let index = 0; index < plans.length; index += 1) {
+      const plan = plans[index]
+      const isLastPlan = index === plans.length - 1
+      if (plan.kind === 'vps' && !isLastPlan && originIsDegraded(degradedKey)) {
+        lastError = lastError ?? new Error('origin_degraded')
+        continue
       }
-      return response
-    } catch (err) {
-      console.error(JSON.stringify({
-        event: 'route_error',
-        t: new Date().toISOString(),
-        route: isPlugin ? 'plugin' : 'deno',
-        method: request.method,
-        inHost,
-        hostHeader: request.headers.get('host') || undefined,
-        path: url.pathname,
-        target,
-        denoRouteKind: denoTarget?.kind,
-        message: err instanceof Error ? err.message : String(err)
-      }))
-      return withRouterRevision(new Response('Upstream error', { status: 502 }))
+      try {
+        const result = await proxyRoute(request, plan, denoTarget)
+        const response = result.response
+        if (plan.kind === 'vps' && !isLastPlan && RETRYABLE_ORIGIN_STATUSES.has(response.status)) {
+          markOriginDegraded(degradedKey, degradedTtlMs)
+          try {
+            await response.body?.cancel()
+          } catch {}
+          lastError = new Error(`origin_status_${response.status}`)
+          continue
+        }
+        if (plan.kind === 'vps') {
+          clearOriginDegraded(degradedKey)
+        }
+        const headers = new Headers(response.headers)
+        headers.set(ORIGIN_HEADER, plan.kind)
+        if (index > 0) {
+          headers.set(FAILOVER_HEADER, '1')
+        }
+        const finalResponse = new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        })
+        if (shouldLog('route', request, url, env)) {
+          try {
+            const log = {
+              t: new Date().toISOString(),
+              route: isPlugin ? 'plugin' : 'deno',
+              method: request.method,
+              inHost,
+              hostHeader: request.headers.get('host') || undefined,
+              path: url.pathname,
+              hasQuery: url.search.length > 0,
+              target: result.target,
+              targetHost: new URL(result.target).hostname,
+              denoRouteKind: result.denoRouteKind,
+              origin: plan.kind,
+              failover: index > 0,
+              status: finalResponse.status,
+              ms: Date.now() - started,
+              workIncoming: inHost === 'work.ubq.fi',
+              workTarget: !isPlugin && subKey === 'work',
+              cfRay: request.headers.get('cf-ray') || undefined,
+            }
+            // Structured JSON log for easy filtering in Workers Logs
+            console.log(JSON.stringify({ event: 'route', ...log }))
+          } catch {}
+        }
+        return withRouterRevision(finalResponse)
+      } catch (err) {
+        lastError = err
+        if (plan.kind === 'vps' && !isLastPlan) {
+          markOriginDegraded(degradedKey, degradedTtlMs)
+        }
+      }
     }
+
+    console.error(JSON.stringify({
+      event: 'route_error',
+      t: new Date().toISOString(),
+      route: isPlugin ? 'plugin' : 'deno',
+      method: request.method,
+      inHost,
+      hostHeader: request.headers.get('host') || undefined,
+      path: url.pathname,
+      targets: plans.map((plan) => plan.url),
+      denoRouteKind: denoTarget?.kind,
+      message: lastError instanceof Error ? lastError.message : String(lastError)
+    }))
+    return withRouterRevision(new Response('Upstream error', { status: 502 }))
   }
 }
 
@@ -232,9 +288,13 @@ async function proxy(request: Request, targetUrl: string, timeoutMs: number): Pr
   const headers = new Headers()
   for (const [key, value] of request.headers.entries()) {
     const k = key.toLowerCase()
-    if (k === 'host' || k === 'origin' || k === 'referer' || k === 'cf-ray' || k === 'cookie') continue
+    // Match the live router: strip only the hop headers below. Origin and
+    // Cookie must reach the app (session and hub origin-guard flows need them).
+    if (k === 'host' || k === 'referer' || k === 'cf-ray') continue
     headers.set(key, value)
   }
+  headers.set('x-forwarded-host', new URL(request.url).host)
+  headers.set('x-forwarded-proto', 'https')
 
   const init: RequestInit = { method: request.method, headers, redirect: 'manual' }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -252,16 +312,98 @@ type RouteProxyResult = Readonly<{
 
 async function proxyRoute(
   request: Request,
-  target: string,
+  plan: OriginPlan,
   denoTarget: DenoRouteTarget | null,
 ): Promise<RouteProxyResult> {
   const subKey = getSubdomainKey(new URL(request.url).hostname)
-  const res = await proxy(request, target, proxyTimeoutMsForSubdomain(subKey))
+  const res = await proxy(request, plan.url, proxyTimeoutMsForSubdomain(subKey))
   return {
     response: res,
-    target,
+    target: plan.url,
     denoRouteKind: denoTarget?.kind,
   }
+}
+
+export type OriginPlan = Readonly<{
+  kind: 'vps' | 'deno'
+  url: string
+  denoRouteKind?: DenoRouteTarget['kind']
+}>
+
+/** Parse the VPS origin map totally: malformed input yields an empty map. */
+export function parseVpsOriginMap(raw: string | undefined): Record<string, string> {
+  const map: Record<string, string> = {}
+  if (!raw) return map
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return map
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return map
+  for (const [host, origin] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof origin !== 'string') continue
+    const normalizedHost = host.trim().toLowerCase()
+    const normalizedOrigin = origin.trim().toLowerCase()
+    if (!normalizedHost || !normalizedOrigin) continue
+    if (!/^[a-z0-9.-]+$/.test(normalizedOrigin)) continue
+    map[normalizedHost] = normalizedOrigin
+  }
+  return map
+}
+
+export function parseDegradedTtlMs(raw: string | undefined): number {
+  const seconds = Number(raw)
+  if (!Number.isFinite(seconds) || seconds <= 0) return DEFAULT_DEGRADED_TTL_MS
+  return Math.min(seconds * 1000, 300_000)
+}
+
+/**
+ * Ordered origins for a request: the VPS primary when the host is mapped,
+ * then the existing Deno Deploy target as the fallback.
+ */
+export function buildOriginPlans(
+  url: URL,
+  denoTarget: DenoRouteTarget | null,
+  denoTargetUrl: string,
+  vpsOriginHost: string | undefined,
+): OriginPlan[] {
+  const plans: OriginPlan[] = []
+  if (vpsOriginHost) {
+    plans.push({
+      kind: 'vps',
+      url: `https://${vpsOriginHost}${url.pathname}${url.search}`,
+      denoRouteKind: denoTarget?.kind,
+    })
+  }
+  plans.push({ kind: 'deno', url: denoTargetUrl, denoRouteKind: denoTarget?.kind })
+  return plans
+}
+
+// Isolate-local degraded markers: cheap, no bindings, and each isolate stops
+// hammering a failed origin within the first retry cycle.
+const degradedOrigins = new Map<string, number>()
+
+export function markOriginDegraded(key: string, ttlMs: number): void {
+  degradedOrigins.set(key, Date.now() + ttlMs)
+}
+
+export function originIsDegraded(key: string): boolean {
+  const until = degradedOrigins.get(key)
+  if (until === undefined) return false
+  if (until <= Date.now()) {
+    degradedOrigins.delete(key)
+    return false
+  }
+  return true
+}
+
+export function clearOriginDegraded(key: string): void {
+  degradedOrigins.delete(key)
+}
+
+export function resetOriginHealth(): void {
+  degradedOrigins.clear()
 }
 
 function buildPreviewUrl(subKey: string, url: URL): string {

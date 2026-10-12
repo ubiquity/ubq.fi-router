@@ -26,6 +26,20 @@ Entry point: `src/worker.ts` (module worker).
 - RPC (same origin)
   - `/rpc/:chainId` → proxied to `https://rpc.ubq.fi/:chainId`
 
+## VPS primary with Deno fallback
+
+- `VPS_ORIGIN_MAP` is a JSON object mapping a public host to the origin host that reaches
+  the same app on the VPS (a DNS-only hostname pointing at the VPS). Mapped hosts are tried
+  on the VPS first; the existing Deno Deploy target is the fallback. Hosts absent from the
+  map keep today's Deno-only behavior.
+- `VPS_DEGRADED_TTL_SECONDS` (default 10, max 300) is how long an origin is skipped after a
+  failed attempt, so a dead primary is not hammered on every request.
+- Failover triggers before any response body is read: fetch/DNS/timeout errors from the
+  primary and upstream 502/503/504. Bodies are replayed from a clone of the original
+  request, so upstream writes should stay idempotent for the timeout case.
+- Responses carry `x-uos-router-origin: vps|deno` and, when a fallback served the request,
+  `x-uos-router-failover: 1`.
+
 ## Notes
 
 - Routes are managed in the Cloudflare dashboard; `wrangler.toml` does not attach routes.
