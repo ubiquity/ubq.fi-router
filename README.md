@@ -18,16 +18,18 @@ Entry point: `src/worker.ts` (module worker).
 - `ubq.fi` and `*.ubq.fi` hosts are served by their own Cloudflare workers where
   they have one (apex, stake, xp, notifications, demo, onboard, card, keygen,
   work, partner, pay, kv); the router only handles hosts listed in
-  `VPS_ORIGIN_MAP` (auth, ai, checkout, health) plus the failover canary.
+  `VPS_ORIGIN_MAP` (passport, ai, checkout, health) plus the failover canary.
 - Mapped hosts are proxied to `https://origin.ubq.fi` (DNS-only, straight to the
   VPS) with `x-forwarded-host`, so the VPS Caddy dispatcher picks the app and the
   app keeps its real host and origin. A failure marks the origin degraded briefly
   and answers 502; there is no second origin.
-- Hosts with no VPS origin answer `410 {"error":"service_retired"}` — Deno Deploy
+- Other hosts with no VPS origin answer `410 {"error":"service_retired"}` — Deno Deploy
   is retired.
 - `GET|POST /rpc/:chainId` stays a same-origin proxy to `https://rpc.ubq.fi`
   (the VPS Permit2 RPC proxy) with CORS headers.
 - Responses carry `x-uos-router-revision` and `x-uos-router-origin: vps`.
+
+The exact legacy host `auth.ubq.fi` returns a 308 redirect to `https://passport.ubq.fi`, preserving the path, query and request method. Deploy the Passport backend and its exact `passport.ubq.fi` Caddy host mapping before activating this router configuration; retain the old VPS Caddy handler for rollback.
 
 ## Notes
 
