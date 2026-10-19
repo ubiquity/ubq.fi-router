@@ -31,7 +31,7 @@ export interface Env {
   /**
    * JSON object mapping a public host (for example "auth.ubq.fi") to the VPS
    * origin host that reaches the same app (a DNS-only hostname pointing at the
-   * VPS). Hosts absent from the map answer 410 service_retired.
+   * VPS). Other hosts answer 410 service_retired; auth.ubq.fi redirects to Passport.
    */
   VPS_ORIGIN_MAP?: string
   /** Seconds a failed origin stays marked degraded before it is retried. */
@@ -67,6 +67,10 @@ function shouldLog(kind: LogKind, request: Request, url: URL, env: Env): boolean
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+
+    if (url.hostname === 'auth.ubq.fi') {
+      return withRouterRevision(Response.redirect(`https://passport.ubq.fi${url.pathname}${url.search}`, 308))
+    }
 
     if (url.pathname === '/__health') {
       if (shouldLog('health', request, url, env)) {

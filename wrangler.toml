@@ -18,5 +18,5 @@ invocation_logs = true
 
 [vars]
 # Hosts served by the VPS first, through the DNS-only origin.ubq.fi ingress.
-# Hosts absent here answer 410 service_retired.
-VPS_ORIGIN_MAP = '{"auth.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi","checkout.ubq.fi":"origin.ubq.fi","health.ubq.fi":"origin.ubq.fi","probe.ubq.fi":"origin.ubq.fi"}'
+# Other hosts answer 410 service_retired; auth.ubq.fi redirects to Passport.
+VPS_ORIGIN_MAP = '{"passport.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi","checkout.ubq.fi":"origin.ubq.fi","health.ubq.fi":"origin.ubq.fi","probe.ubq.fi":"origin.ubq.fi"}'
