@@ -1,3 +1,4 @@
+import { decorateHtmlRevisionFooter } from './utils/revision-footer'
 /**
  * UBQ.FI Router — Cloudflare Worker
  *
@@ -138,11 +139,12 @@ export default {
           }))
         } catch {}
       }
-      return withRouterRevision(new Response(response.body, {
+      const proxiedResponse = new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
         headers,
-      }))
+      })
+      return withRouterRevision(await decorateHtmlRevisionFooter(request, proxiedResponse, ROUTER_REVISION))
     } catch (err) {
       markOriginDegraded(degradedKey, degradedTtlMs)
       console.error(JSON.stringify({
