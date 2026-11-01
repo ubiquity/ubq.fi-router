@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { runInNewContext } from 'node:vm'
+import type { HealthSnapshot } from '../src/health-dashboard/api'
 import worker, { type Env, resetOriginHealth } from '../src/worker'
 
 const originalFetch = globalThis.fetch
