@@ -167,6 +167,60 @@ describe('VPS routing', () => {
 })
 
 describe('same-origin RPC', () => {
+  test.each(['uusd.ubq.fi', 'pay.ubq.fi', 'new.preview.ubq.fi', 'passport.ubq.fi'])(
+    'mounts /rpc on %s independently of app routing',
+    async (host) => {
+      const body = '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+      const calls = mockFetch(async (request) => {
+        expect(request.method).toBe('POST')
+        expect(request.headers.get('content-type')).toBe('application/json')
+        expect(request.headers.get('host')).toBe(null)
+        expect(request.headers.get('origin')).toBe(null)
+        expect(request.headers.get('referer')).toBe(null)
+        expect(await request.text()).toBe(body)
+        return new Response('{"result":"0xa"}', {
+          headers: { 'content-type': 'application/json', 'x-rpc-upstream': 'test' },
+        })
+      })
+
+      const res = await worker.fetch(new Request(`https://${host}/rpc/10?client=app`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          host,
+          origin: `https://${host}`,
+          referer: `https://${host}/`,
+        },
+        body,
+      }), mappedEnv)
+
+      expect(calls).toEqual(['https://rpc.ubq.fi/10?client=app'])
+      expect(res.status).toBe(200)
+      expect(res.headers.get('location')).toBe(null)
+      expect(res.headers.get('content-type')).toBe('application/json')
+      expect(res.headers.get('x-rpc-upstream')).toBe('test')
+      expect(res.headers.get('x-uos-router-revision')).toBe('local')
+      expect(await res.text()).toBe('{"result":"0xa"}')
+    },
+  )
+
+  test('handles subdomain preflight locally without requiring an app mapping', async () => {
+    const calls = mockFetch(() => new Response('should not be reached'))
+    const res = await worker.fetch(new Request('https://pay.ubq.fi/rpc/1', {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'https://uusd.ubq.fi',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type',
+      },
+    }), {} as Env)
+
+    expect(res.status).toBe(204)
+    expect(res.headers.get('access-control-allow-origin')).toBe('*')
+    expect(res.headers.get('access-control-allow-methods')).toContain('POST')
+    expect(calls).toHaveLength(0)
+  })
+
   test('proxies /rpc/:chainId to rpc.ubq.fi with CORS headers', async () => {
     const calls = mockFetch(() => new Response('{"result":"0x1"}', { headers: { 'content-type': 'application/json' } }))
 

@@ -31,6 +31,28 @@ Entry point: `src/worker.ts` (module worker).
 
 The exact legacy host `auth.ubq.fi` returns a 308 redirect to `https://passport.ubq.fi`, preserving the path, query and request method. Deploy the Passport backend and its exact `passport.ubq.fi` Caddy host mapping before activating this router configuration; retain the old VPS Caddy handler for rollback.
 
+## Same-origin RPC
+
+Apps should use a relative RPC URL, for example `/rpc/1`, rather than
+`https://rpc.ubq.fi/1`. Thus `https://uusd.ubq.fi/rpc/1` and
+`https://pay.ubq.fi/rpc/1` both proxy to `https://rpc.ubq.fi/1` without redirecting
+clients to another origin or requiring a browser CORS preflight. The worker
+preserves the request method, body and query string, and returns the upstream
+response. No `VPS_ORIGIN_MAP` entry is needed for RPC, including on new or nested
+subdomains. The legacy `auth.ubq.fi` redirect described above remains an exception.
+
+Because routes are managed in the Cloudflare dashboard, attach both path routes
+to the `ubq-fi-router` worker to expose RPC across the zone:
+
+- `ubq.fi/rpc/*`
+- `*.ubq.fi/rpc/*`
+
+These path-specific routes leave non-RPC traffic with each host's existing app
+worker or origin. The app hostname must be proxied through Cloudflare; leave the
+upstream `rpc.ubq.fi` DNS-only so proxy requests reach the RPC service directly.
+`OPTIONS` requests are still answered locally for cross-origin clients, but apps
+using their own origin's `/rpc/:chainId` do not need them.
+
 ## Notes
 
 - Routes are managed in the Cloudflare dashboard; `wrangler.toml` does not attach routes.
