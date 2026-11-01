@@ -138,11 +138,11 @@ export default {
           }))
         } catch {}
       }
-      return withRouterRevision(new Response(response.body, {
+      return withRouterRevision(withAppRevision(new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
         headers,
-      }))
+      }), request))
     } catch (err) {
       markOriginDegraded(degradedKey, degradedTtlMs)
       console.error(JSON.stringify({
@@ -168,6 +168,80 @@ function withRouterRevision(response: Response): Response {
     statusText: response.statusText,
     headers,
   })
+}
+
+/** Use the app's deployed revision, never the router revision or repository HEAD. */
+function withAppRevision(response: Response, request: Request): Response {
+  if (
+    request.method === 'HEAD' || response.status !== 200 || !response.body ||
+    response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'text/html' ||
+    response.headers.has('content-range') ||
+    /\bno-transform\b/i.test(response.headers.get('cache-control') || '') ||
+    /^\s*attachment\b/i.test(response.headers.get('content-disposition') || '')
+  ) return response
+
+  const revision = response.headers.get('x-app-revision')?.trim() || ''
+  const repository = (response.headers.get('x-app-repository')?.trim() || '')
+    .replace(/^https:\/\/github\.com\//i, '')
+    .replace(/\/$/, '')
+    .replace(/\.git$/i, '')
+  // Validate before interpolating origin metadata into HTML or a link.
+  if (!/^[a-f\d]{7,40}$/i.test(revision) ||
+    !/^[a-z\d][a-z\d-]*\/(?!\.{1,2}$)[a-z\d_.-]+$/i.test(repository)) return response
+
+  const badge = `<style>
+[data-uos-app-revision] {
+  display: inline-block;
+  padding: 8px;
+  color: inherit;
+  font: 12px/1.5 monospace;
+  text-decoration: none;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+[data-uos-app-revision]:hover, [data-uos-app-revision]:focus-visible { opacity: 1; }
+[data-uos-revision-footer] { text-align: center; }
+</style><a data-uos-app-revision href="https://github.com/${repository}/commit/${revision}" target="_blank" rel="noopener noreferrer" title="${repository}@${revision}" aria-label="View ${repository} revision ${revision} on GitHub">${revision.slice(0, 7)}</a>`
+  const revisionFooter = `<footer data-uos-revision-footer>${badge}</footer>`
+  let hasRevision = false
+  const headers = new Headers(response.headers)
+  // These describe the original body and are no longer valid after rewriting.
+  for (const name of ['content-length', 'etag', 'content-md5', 'digest']) headers.delete(name)
+  return new HTMLRewriter()
+    .on('[data-uos-app-revision]', {
+      element() { hasRevision = true },
+    })
+    .on('footer', {
+      element(footer) {
+        footer.onEndTag(tag => {
+          if (!hasRevision) {
+            tag.before(badge, { html: true })
+            hasRevision = true
+          }
+        })
+      },
+    })
+    .on('body', {
+      element(body) {
+        body.onEndTag(tag => {
+          if (!hasRevision) {
+            tag.before(revisionFooter, { html: true })
+            hasRevision = true
+          }
+        })
+      },
+    })
+    .onDocument({
+      end(document) {
+        // HTML permits omitted body/end tags, so keep a document-end fallback.
+        if (!hasRevision) document.append(revisionFooter, { html: true })
+      },
+    })
+    .transform(new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }))
 }
 
 function json(obj: unknown, status = 200): Response {

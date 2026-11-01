@@ -31,6 +31,33 @@ Entry point: `src/worker.ts` (module worker).
 
 The exact legacy host `auth.ubq.fi` returns a 308 redirect to `https://passport.ubq.fi`, preserving the path, query and request method. Deploy the Passport backend and its exact `passport.ubq.fi` Caddy host mapping before activating this router configuration; retain the old VPS Caddy handler for rollback.
 
+## App revision footers
+
+The router streams a compact, muted monospace commit link into each app's HTML
+footer (or adds a footer before `</body>` when none exists), without the ❔ icon.
+To identify the **deployed app**, its origin must send these response headers:
+
+```http
+Content-Type: text/html; charset=utf-8
+X-App-Repository: ubiquity/ubiquity-passport
+X-App-Revision: 0123456789abcdef0123456789abcdef01234567
+```
+
+`X-App-Repository` accepts `owner/repo` or an HTTPS GitHub repository URL;
+`X-App-Revision` is a 7–40 character hexadecimal Git commit hash supplied by the
+app's deployment. The link displays seven characters and opens that commit in
+the app's repository. No GitHub API calls or browser scripts are needed, and
+existing `data-uos-app-revision` badges are not duplicated. Styles are scoped to
+the badge and respect the app's existing Content Security Policy.
+
+Missing/invalid metadata leaves the body unchanged: the router never substitutes
+its own revision or a repository's latest commit for the deployed app's hash.
+Only full, successful HTML pages are rewritten; HEAD, partial/error responses,
+attachments, `Cache-Control: no-transform`, API responses and RPC streams pass
+through. Body length/integrity validators are removed on rewritten responses.
+Apps served by their own workers rather than this router must provide their own
+footer integration.
+
 ## Notes
 
 - Routes are managed in the Cloudflare dashboard; `wrangler.toml` does not attach routes.
