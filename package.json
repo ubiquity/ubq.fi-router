@@ -7,7 +7,7 @@
     "cf:dev": "wrangler dev",
     "cf:deploy": "wrangler deploy",
     "type-check": "tsc --noEmit",
-    "build": "mkdir -p dist && cp src/worker.ts dist/worker.js",
+    "build": "bun build src/worker.ts --target browser --outfile dist/worker.js",
     "test": "bun test"
   },
   "devDependencies": {
