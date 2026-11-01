@@ -145,7 +145,7 @@ describe('app revision footers', () => {
     expect(response.headers.get('content-length')).toBe('123')
   })
 
-  test.each([
+  test.each<Record<string, string>>([
     { 'cache-control': 'public, no-transform, max-age=60' },
     { 'content-disposition': 'attachment; filename="app.html"' },
     { 'content-range': 'bytes 0-10/100' },
@@ -154,7 +154,7 @@ describe('app revision footers', () => {
     expect(await (await fetchPage()).text()).toBe(page)
   })
 
-  test.each([
+  test.each<Record<string, string>>([
     {},
     { 'x-app-repository': repository },
     { 'x-app-revision': revision },
