@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import worker, { resetOriginHealth, type Env } from '../src/worker'
 
 const originalFetch = globalThis.fetch
+const originalTransform = HTMLRewriter.prototype.transform
 const revision = '0123456789abcdef0123456789abcdef01234567'
 const repository = 'ubiquity/ubiquity-passport'
 const appHeaders = {
@@ -29,6 +30,7 @@ function fetchPage(method = 'GET', host = 'passport.ubq.fi') {
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  HTMLRewriter.prototype.transform = originalTransform
   resetOriginHealth()
 })
 
@@ -105,7 +107,18 @@ describe('app revision footers', () => {
     expect(secondPass).toBe(firstPass)
   })
 
-  test('rewrites streamed HTML across chunk boundaries without buffering it first', async () => {
+  test('delegates streamed HTML to the rewriter without buffering it first', async () => {
+    // Bun 1.2.17 rejects JS-backed streams in its native HTMLRewriter. Model
+    // Workers' lazy transform boundary, using the real parser on the completed fixture.
+    HTMLRewriter.prototype.transform = function (this: HTMLRewriter, response: Response): Response {
+      return new Response(new ReadableStream<Uint8Array>({
+        start: async controller => {
+          const parsed = originalTransform.call(this, new Response(await response.text(), response))
+          controller.enqueue(new Uint8Array(await parsed.arrayBuffer()))
+          controller.close()
+        },
+      }), response)
+    }
     const encoder = new TextEncoder()
     const chunks = ['<html><body><foot', 'er>Streamed</foot', 'er></body></html>']
     let nextChunk = 0
