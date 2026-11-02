@@ -1,3 +1,5 @@
+import { handleHealthDashboard, type HealthDashboardEnv } from './health-dashboard/api'
+
 /**
  * UBQ.FI Router — Cloudflare Worker
  *
@@ -23,7 +25,7 @@ const DEFAULT_DEGRADED_TTL_MS = 10_000
 const RETRYABLE_ORIGIN_STATUSES = new Set([502, 503, 504])
 const ORIGIN_HEADER = 'x-uos-router-origin'
 
-export interface Env {
+export interface Env extends HealthDashboardEnv {
   // Optional env vars to control logging without code changes
   LOG_ROUTE_SAMPLE?: string // 0..1 sampling for normal route logs
   LOG_RPC_SAMPLE?: string // 0..1 sampling for RPC logs
@@ -84,7 +86,9 @@ export default {
             path: url.pathname,
             cfRay: request.headers.get('cf-ray') || undefined,
           }))
-        } catch {}
+        } catch {
+          // Logging failures must not interrupt routing.
+        }
       }
       return withRouterRevision(json({ status: 'ok', time: new Date().toISOString() }))
     }
@@ -92,6 +96,9 @@ export default {
     if (url.pathname.startsWith('/rpc/')) {
       return handleRpc(request, url, env)
     }
+
+    const healthResponse = await handleHealthDashboard(request, env)
+    if (healthResponse) return withRouterRevision(healthResponse)
 
     const inHost = url.hostname
     const vpsOriginHost = parseVpsOriginMap(env.VPS_ORIGIN_MAP)[inHost]
@@ -136,7 +143,9 @@ export default {
             ms: Date.now() - started,
             cfRay: request.headers.get('cf-ray') || undefined,
           }))
-        } catch {}
+        } catch {
+          // Logging failures must not interrupt routing.
+        }
       }
       return withRouterRevision(new Response(response.body, {
         status: response.status,
@@ -228,7 +237,9 @@ async function handleRpc(request: Request, url: URL, env: Env): Promise<Response
         ms: Date.now() - started,
         cfRay: request.headers.get('cf-ray') || undefined,
       }))
-    } catch {}
+    } catch {
+      // Logging failures must not interrupt routing.
+    }
   }
   return withRouterRevision(new Response(resp.body, {
     status: resp.status,

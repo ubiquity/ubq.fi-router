@@ -31,6 +31,47 @@ Entry point: `src/worker.ts` (module worker).
 
 The exact legacy host `auth.ubq.fi` returns a 308 redirect to `https://passport.ubq.fi`, preserving the path, query and request method. Deploy the Passport backend and its exact `passport.ubq.fi` Caddy host mapping before activating this router configuration; retain the old VPS Caddy handler for rollback.
 
+## Health dashboard
+
+The router serves `https://health.ubq.fi/` and its read-only `/api/health` JSON
+endpoint directly. Other health-host paths still use the existing VPS mapping;
+`/__health` remains router liveness, not app/plugin test health. Attach the
+`health.ubq.fi/*` route to this Worker in Cloudflare before enabling the dashboard
+(the VPS-only hostname will otherwise keep serving its existing application).
+
+By default the dashboard monitors this repository's `ci.yml` on `main`. Set the
+optional `HEALTH_CHECKS` Worker variable to a JSON array to include public app and
+plugin repositories, for example:
+
+```json
+[
+  { "name": "Router", "repository": "ubiquity/ubq.fi-router", "workflow": "ci.yml", "branch": "main" },
+  { "name": "Example plugin", "repository": "ubiquity-os/example-plugin", "workflow": "tests.yml", "branch": "main" }
+]
+```
+
+`repository` is required; `name`, `workflow`, and `branch` default to the repository
+name, `ci.yml`, and `main`. Configure at most 20 checks. An optional server-side
+`GITHUB_TOKEN` secret raises GitHub API rate limits; it is never sent to the browser.
+Only configure repositories whose test results may be published publicly.
+
+The latest **push** workflow run on each configured branch supplies its test
+status. Success is `operational`; failure/timeout is `degraded`; queued/running
+checks are `pending`; missing, cancelled, skipped, or unavailable results are
+`unknown`, never passing. Each result includes its repository, workflow, branch,
+run update time, and GitHub run link when available. These are CI results, not
+live service availability guarantees.
+
+The API returns `{ status, updatedAt, checks }`, with an optional `error` for invalid
+configuration. Overall status is `operational` only when every check passes,
+`degraded` when any fails, otherwise `unknown`. HTTP status is 200 for operational
+and 503 otherwise. `GET`, `HEAD`, and CORS `OPTIONS` are supported so other
+organization dashboards/monitoring tools can consume the same results without
+browser credentials. Requests time out after five seconds per GitHub check;
+results (including unavailable states) are cached in the Worker isolate for 60
+seconds, with concurrent requests sharing the same lookup. The page refreshes
+every minute and links each check to its workflow run.
+
 ## Notes
 
 - Routes are managed in the Cloudflare dashboard; `wrangler.toml` does not attach routes.
