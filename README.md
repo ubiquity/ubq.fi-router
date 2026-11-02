@@ -1,8 +1,8 @@
-# UBQ.FI Router — Cloudflare Worker → Deno Apps
+# UBQ.FI Router — Cloudflare Worker
 
-A minimal Cloudflare Worker that deterministically routes ubq.fi traffic to Deno Deploy apps. No KV, no discovery, no sticky cookies, and no Cloudflare Pages fallback. The `/rpc/:chainId` path is exposed same‑origin per domain and proxied to `https://rpc.ubq.fi` to keep CORS simple.
+A minimal Cloudflare Worker that routes ubq.fi traffic to app Workers and VPS origins, with shared app revision footers. No KV, no discovery, no sticky cookies, and no Deno or Cloudflare Pages fallback. The `/rpc/:chainId` path is exposed same‑origin per domain and proxied to `https://rpc.ubq.fi` to keep CORS simple.
 
-See docs/deno-only-simplification.md for the URL mapping rules; we use those rules but keep the Cloudflare Worker as the single front‑door.
+See `wrangler.toml` for the production routes, app service bindings and VPS origin map.
 
 ## Quick Start (Cloudflare Worker)
 
@@ -15,27 +15,40 @@ Entry point: `src/worker.ts` (module worker).
 
 ## Routing Rules
 
-- `ubq.fi` and `*.ubq.fi` hosts are served by their own Cloudflare workers where
-  they have one (apex, stake, xp, notifications, demo, onboard, card, keygen,
-  work, partner, pay, kv); the router only handles hosts listed in
-  `VPS_ORIGIN_MAP` (passport, ai, checkout, health) plus the failover canary.
+- `ubq.fi` and the app hosts (stake, xp, notifications, demo, onboard, card,
+  keygen, work, partner, pay, kv) enter this router and are forwarded to their
+  existing Cloudflare Workers through the service bindings in `wrangler.toml`.
+  Explicit HTTP/HTTPS routes cover these hosts ahead of their existing
+  scheme-less routes. The apps do not need source or deployment changes.
+- `VPS_ORIGIN_MAP` covers passport, ai, checkout, health and the failover canary.
 - Mapped hosts are proxied to `https://origin.ubq.fi` (DNS-only, straight to the
   VPS) with `x-forwarded-host`, so the VPS Caddy dispatcher picks the app and the
   app keeps its real host and origin. A failure marks the origin degraded briefly
   and answers 502; there is no second origin.
-- Other hosts with no VPS origin answer `410 {"error":"service_retired"}` — Deno Deploy
+- Other hosts with no app Worker or VPS origin answer `410 {"error":"service_retired"}` — Deno Deploy
   is retired.
 - `GET|POST /rpc/:chainId` stays a same-origin proxy to `https://rpc.ubq.fi`
   (the VPS Permit2 RPC proxy) with CORS headers.
-- Responses carry `x-uos-router-revision` and `x-uos-router-origin: vps`.
+- Responses carry `x-uos-router-revision`; app responses also carry
+  `x-uos-router-origin: worker` or `vps`.
 
 The exact legacy host `auth.ubq.fi` returns a 308 redirect to `https://passport.ubq.fi`, preserving the path, query and request method. Deploy the Passport backend and its exact `passport.ubq.fi` Caddy host mapping before activating this router configuration; retain the old VPS Caddy handler for rollback.
 
 ## App revision footers
 
-The router streams a compact, muted monospace commit link into each app's HTML
-footer (or adds a footer before `</body>` when none exists), without the ❔ icon.
-To identify the **deployed app**, its origin must send these response headers:
+The shared response middleware streams a compact, muted monospace commit link
+into every app's HTML footer (or adds a footer before `</body>` when none exists),
+without the ❔ icon. This applies to both Worker and VPS apps.
+
+The host-to-repository registry is in `src/worker.ts`. Without any app changes,
+the router retrieves the latest commit on that repository's default branch from
+the public GitHub API, cached at the edge for 15 minutes. It displays seven
+characters linked to the full commit. The tooltip and accessible label say
+**Latest source revision (deployment not reported)**: repository HEAD is not
+proof of the deployed version. No GitHub token or browser script is required.
+
+Apps that already report their exact deployed commit take precedence over that
+fallback, using these optional response headers:
 
 ```http
 Content-Type: text/html; charset=utf-8
@@ -44,19 +57,18 @@ X-App-Revision: 0123456789abcdef0123456789abcdef01234567
 ```
 
 `X-App-Repository` accepts `owner/repo` or an HTTPS GitHub repository URL;
-`X-App-Revision` is a 7–40 character hexadecimal Git commit hash supplied by the
-app's deployment. The link displays seven characters and opens that commit in
-the app's repository. No GitHub API calls or browser scripts are needed, and
-existing `data-uos-app-revision` badges are not duplicated. Styles are scoped to
-the badge and respect the app's existing Content Security Policy.
+`X-App-Revision` accepts a 7–40 character hexadecimal Git commit hash. In this
+case the tooltip says **Deployed revision**. Partial or invalid reported metadata
+is not replaced with a guessed version. The router's own revision is never used
+as an app revision.
 
-Missing/invalid metadata leaves the body unchanged: the router never substitutes
-its own revision or a repository's latest commit for the deployed app's hash.
-Only full, successful HTML pages are rewritten; HEAD, partial/error responses,
-attachments, `Cache-Control: no-transform`, API responses and RPC streams pass
-through. Body length/integrity validators are removed on rewritten responses.
-Apps served by their own workers rather than this router must provide their own
-footer integration.
+Existing `data-uos-app-revision` badges are not duplicated. Styles are scoped to
+the badge and respect the app's existing Content Security Policy. GitHub errors,
+rate limits, invalid responses and a two-second lookup timeout leave app HTML
+unchanged rather than breaking the app. Only full, successful HTML pages are
+rewritten; HEAD, partial/error responses, attachments, `Cache-Control:
+no-transform`, API responses and RPC streams pass through without metadata
+lookups. Body length/integrity validators are removed on rewritten responses.
 
 ## Notes
 
