@@ -137,9 +137,10 @@ describe('production revision footer integration', () => {
     expect(calls).toHaveLength(0)
   })
 
-  test.each([null, {}, [], [{ sha: 'not-a-sha' }], [{ sha: '"><script>alert(1)</script>' }]])(
+  // Wrap JSON payloads so test.each does not spread array contents into callback arguments.
+  test.each([null, {}, [], [{ sha: 'not-a-sha' }], [{ sha: '"><script>alert(1)</script>' }]].map((data) => ({ data })))(
     'fails open for invalid GitHub metadata: %j',
-    async (data) => {
+    async ({ data }) => {
       metadataFetch(() => Response.json(data))
       const response = await worker.fetch(new Request('https://stake.ubq.fi/'), appEnv())
       expect(response.status).toBe(200)
