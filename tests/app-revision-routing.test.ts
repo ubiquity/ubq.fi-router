@@ -10,7 +10,7 @@ const config = Bun.TOML.parse(await Bun.file(new URL('../wrangler.toml', import.
   routes: { pattern: string; zone_name: string }[]
   services: { binding: keyof Env; service: string }[]
 }
-const apps = [
+const apps: [string, keyof Env, string, string][] = [
   ['ubq.fi', 'APP_UBQ', 'ubq-fi', 'ubiquity/ubq.fi'],
   ['stake.ubq.fi', 'APP_STAKE', 'stake-ubq-fi', 'ubiquity/stake.ubq.fi'],
   ['xp.ubq.fi', 'APP_XP', 'xp-ubq-fi', 'ubiquity/xp.ubq.fi'],
@@ -98,11 +98,12 @@ describe('production revision footer integration', () => {
         ? new Response(html, { headers: { 'content-type': 'text/html' } })
         : Response.json([{ sha }])
     )
-    const response = await worker.fetch(new Request(`https://${host}/`), config.vars)
+    // The router owns the health dashboard root; legacy paths still reach the VPS app.
+    const response = await worker.fetch(new Request(`https://${host}/legacy`), config.vars)
     expect(await response.text()).toContain(`https://github.com/${repository}/commit/${sha}`)
     expect(response.headers.get('x-uos-router-origin')).toBe('vps')
     expect(calls).toEqual([
-      'https://origin.ubq.fi/',
+      'https://origin.ubq.fi/legacy',
       `https://api.github.com/repos/${repository}/commits?per_page=1`,
     ])
   })
