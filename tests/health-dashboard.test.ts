@@ -20,12 +20,19 @@ function configuration(name: string, extra: Record<string, unknown> = {}): Env {
   return { HEALTH_CHECKS: JSON.stringify([{ name, repository: 'ubiquity/app', ...extra }]) }
 }
 
-function mockFetch(handler: (request: Request) => Response | Promise<Response>): Request[] {
-  const calls: Request[] = []
+type FetchCall = Pick<Request, 'url' | 'headers' | 'redirect' | 'signal'>
+
+function mockFetch(handler: (request: Request, init?: RequestInit) => Response | Promise<Response>): FetchCall[] {
+  const calls: FetchCall[] = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init)
-    calls.push(request)
-    return await handler(request)
+    calls.push({
+      url: request.url,
+      headers: request.headers,
+      redirect: init?.redirect ?? request.redirect,
+      signal: request.signal,
+    })
+    return await handler(request, init)
   }) as typeof fetch
   return calls
 }
@@ -119,7 +126,10 @@ describe('CI health API', () => {
   })
 
   test('uses configured test workflows, branches and a server-only token, including for HEAD', async () => {
-    const calls = mockFetch(() => runs(passingRun))
+    const calls = mockFetch((_request, init) => {
+      expect(init?.redirect).toBe('error')
+      return runs(passingRun)
+    })
     const env = {
       ...configuration('Plugin', { workflow: 'tests.yaml', branch: 'release/next' }),
       GITHUB_TOKEN: 'test-only-token',

@@ -67,13 +67,12 @@ async function checkWorkflow(check: Check, token?: string): Promise<CheckResult>
       'X-GitHub-Api-Version': '2022-11-28',
     })
     if (token) headers.set('Authorization', `Bearer ${token}`)
-    const response = await fetch(
-      new Request(url, {
-        headers,
-        redirect: 'error',
-        signal: AbortSignal.timeout(5_000),
-      }),
-    )
+    // Pass options directly: older Bun versions lose redirect: 'error' in Request.
+    const response = await fetch(url, {
+      headers,
+      redirect: 'error',
+      signal: AbortSignal.timeout(5_000),
+    })
     if (!response.ok) return { ...result, error: `GitHub returned ${response.status}` }
     const data = await response.json() as { workflow_runs?: unknown[] }
     if (!Array.isArray(data.workflow_runs)) throw new Error('Invalid GitHub response')
