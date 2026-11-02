@@ -107,16 +107,24 @@ describe('app revision footers', () => {
 
   test('rewrites streamed HTML across chunk boundaries without buffering it first', async () => {
     const encoder = new TextEncoder()
+    const chunks = ['<html><body><foot', 'er>Streamed</foot', 'er></body></html>']
+    let nextChunk = 0
+    let resume!: () => void
+    const remainingChunks = new Promise<void>(resolve => { resume = resolve })
+    // Keep a live source rather than eagerly enqueueing and closing it before rewriting.
     const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const part of ['<html><body><foot', 'er>Streamed</foot', 'er></body></html>']) {
-          controller.enqueue(encoder.encode(part))
-        }
-        controller.close()
+      async pull(controller) {
+        if (nextChunk > 0) await remainingChunks
+        if (nextChunk === chunks.length) controller.close()
+        else controller.enqueue(encoder.encode(chunks[nextChunk++]))
       },
     })
     serve(body, { headers: { ...appHeaders, 'content-type': 'Text/HTML; charset=UTF-8' } })
-    const html = await (await fetchPage()).text()
+    const response = await fetchPage()
+    // A buffering router would never return while the remaining chunks are withheld.
+    resume()
+    expect(response.status).toBe(200)
+    const html = await response.text()
     expect(html).toContain('<footer>Streamed<style>')
     expect(html).toContain('>0123456</a></footer>')
   })
