@@ -85,7 +85,7 @@ describe('health dashboard routing', () => {
 
   test('does not claim other hosts, liveness, or legacy health-host paths', async () => {
     const calls = mockFetch(() => new Response('legacy VPS'))
-    for (const host of ['ubq.fi', 'health.ubq.fi.example.com']) {
+    for (const host of ['unknown.ubq.fi', 'health.ubq.fi.example.com']) {
       expect((await worker.fetch(new Request(`https://${host}/api/health`), {})).status).toBe(410)
     }
     const live = await worker.fetch(new Request('https://health.ubq.fi/__health'), {})
