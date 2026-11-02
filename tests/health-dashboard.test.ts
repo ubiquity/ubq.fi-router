@@ -143,12 +143,12 @@ describe('CI health API', () => {
   test.each([
     ['completed', 'success', 'operational'],
     ...['failure', 'timed_out', 'action_required', 'startup_failure'].map(
-      (conclusion) => ['completed', conclusion, 'degraded'],
+      (conclusion) => ['completed', conclusion, 'degraded'] as const,
     ),
-    ...['queued', 'in_progress', 'requested', 'waiting', 'pending'].map((status) => [status, null, 'pending']),
-    ...['cancelled', 'skipped', 'neutral', 'stale', null].map((conclusion) => ['completed', conclusion, 'unknown']),
+    ...['queued', 'in_progress', 'requested', 'waiting', 'pending'].map((status) => [status, null, 'pending'] as const),
+    ...['cancelled', 'skipped', 'neutral', 'stale', null].map((conclusion) => ['completed', conclusion, 'unknown'] as const),
     ['unrecognized', null, 'unknown'],
-  ])('maps %s / %s to %s without a false green', async (status, conclusion, expected) => {
+  ] as const)('maps %s / %s to %s without a false green', async (status, conclusion, expected) => {
     mockFetch(() => runs({ ...passingRun, status, conclusion }))
     const { response, body } = await health(configuration(`${status}-${conclusion}`))
     expect(body.checks[0].status).toBe(expected)
