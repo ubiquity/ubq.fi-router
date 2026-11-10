@@ -211,4 +211,41 @@ describe('app revision footers', () => {
     expect(response.headers.get('cache-control')).toBe('public, max-age=60')
     expect(response.headers.get('x-app-revision')).toBe(revision)
   })
+
+  test('skips decoration when request Cache-Control contains no-transform', async () => {
+    serve()
+    const request = new Request('https://passport.ubq.fi/', {
+      headers: { 'cache-control': 'no-transform' },
+    })
+    const response = await worker.fetch(request, env)
+    const html = await response.text()
+    expect(html).toBe(page)
+    expect(html).not.toContain('data-uos-app-revision')
+  })
+
+  test('skips decoration when request Cache-Control contains no-transform among other directives', async () => {
+    serve()
+    const request = new Request('https://passport.ubq.fi/', {
+      headers: { 'cache-control': 'max-age=0, no-transform, private' },
+    })
+    const response = await worker.fetch(request, env)
+    const html = await response.text()
+    expect(html).toBe(page)
+    expect(html).not.toContain('data-uos-app-revision')
+  })
+
+  test('removes modern Content-Digest and Repr-Digest headers when rewriting HTML', async () => {
+    serve(page, {
+      headers: {
+        ...appHeaders,
+        'content-digest': 'sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7k8TLzg_Z=',
+        'repr-digest': 'sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7k8TLzg_Z=',
+      },
+    })
+    const response = await fetchPage()
+    const html = await response.text()
+    expect(html).toContain('data-uos-app-revision')
+    expect(response.headers.has('content-digest')).toBe(false)
+    expect(response.headers.has('repr-digest')).toBe(false)
+  })
 })

@@ -239,6 +239,7 @@ async function withAppRevision(response: Response, request: Request): Promise<Re
     request.method === 'HEAD' || response.status !== 200 || !response.body ||
     response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'text/html' ||
     response.headers.has('content-range') ||
+    /\bno-transform\b/i.test(request.headers.get('cache-control') || '') ||
     /\bno-transform\b/i.test(response.headers.get('cache-control') || '') ||
     /^\s*attachment\b/i.test(response.headers.get('content-disposition') || '')
   ) return response
@@ -278,7 +279,14 @@ async function withAppRevision(response: Response, request: Request): Promise<Re
   let hasRevision = false
   const headers = new Headers(response.headers)
   // These describe the original body and are no longer valid after rewriting.
-  for (const name of ['content-length', 'etag', 'content-md5', 'digest']) headers.delete(name)
+  for (const name of [
+    'content-length',
+    'etag',
+    'content-md5',
+    'digest',
+    'content-digest',
+    'repr-digest',
+  ]) headers.delete(name)
   return new HTMLRewriter()
     .on('[data-uos-app-revision]', {
       element() { hasRevision = true },
