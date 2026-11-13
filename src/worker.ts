@@ -1,4 +1,5 @@
 import { handleHealthDashboard, type HealthDashboardEnv } from './health-dashboard/api'
+import { handleSitemap } from './sitemap-generator'
 
 /**
  * UBQ.FI Router — Cloudflare Worker
@@ -126,6 +127,21 @@ export default {
 
     const healthResponse = await handleHealthDashboard(request, env)
     if (healthResponse) return withRouterRevision(healthResponse)
+
+    const mapResponse = await handleSitemap(request, env, () => {
+      const hosts = new Set([
+        ...Object.keys(APP_WORKERS),
+        ...Object.keys(parseVpsOriginMap(env.VPS_ORIGIN_MAP)),
+        'health.ubq.fi',
+      ])
+      return [...hosts]
+        .filter((host) => /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*ubq\.fi$/.test(host) && host !== 'auth.ubq.fi')
+        .map((host) => ({
+          url: `https://${host}/`,
+          repository: host === 'health.ubq.fi' ? 'ubiquity/ubq.fi-router' : APP_REPOSITORIES[host],
+        }))
+    })
+    if (mapResponse) return withRouterRevision(mapResponse)
 
     const inHost = url.hostname
     const vpsOriginHost = parseVpsOriginMap(env.VPS_ORIGIN_MAP)[inHost]

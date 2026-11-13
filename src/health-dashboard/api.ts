@@ -12,6 +12,8 @@ interface Check {
   repository: string
   workflow: string
   branch: string
+  kind?: 'app' | 'plugin'
+  siteUrl?: string
 }
 
 type Status = 'operational' | 'degraded' | 'pending' | 'unknown'
@@ -42,15 +44,28 @@ function parseChecks(raw: string | undefined): Check[] {
   if (!Array.isArray(values) || values.length === 0 || values.length > 20) throw new Error('Invalid checks')
   return values.map((value: unknown) => {
     if (!value || typeof value !== 'object') throw new Error('Invalid check')
-    const { repository, workflow = 'ci.yml', branch = 'main', name = repository } = value as Record<string, unknown>
+    const { repository, workflow = 'ci.yml', branch = 'main', name = repository, kind, siteUrl } =
+      value as Record<string, unknown>
     if (
       typeof repository !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(repository) ||
       repository.split('/').some((part) => part === '.' || part === '..') ||
       typeof workflow !== 'string' || !/^[\w-][\w.-]*\.ya?ml$/.test(workflow) ||
       typeof branch !== 'string' || !branch.trim() || branch.length > 255 ||
-      typeof name !== 'string' || !name.trim()
+      typeof name !== 'string' || !name.trim() ||
+      (kind !== undefined && kind !== 'app' && kind !== 'plugin')
     ) throw new Error('Invalid check')
-    return { name, repository, workflow, branch }
+    let publicUrl: string | undefined
+    if (siteUrl !== undefined) {
+      if (typeof siteUrl !== 'string') throw new Error('Invalid site URL')
+      const url = new URL(siteUrl)
+      if (url.protocol !== 'https:' || url.username || url.password || url.hash) throw new Error('Invalid site URL')
+      publicUrl = url.href
+    }
+    return {
+      name, repository, workflow, branch,
+      ...(kind === undefined ? {} : { kind }),
+      ...(publicUrl === undefined ? {} : { siteUrl: publicUrl }),
+    }
   })
 }
 
@@ -119,7 +134,7 @@ async function buildSnapshot(env: HealthDashboardEnv): Promise<HealthSnapshot> {
   return { status, updatedAt: new Date().toISOString(), checks: results }
 }
 
-function snapshot(env: HealthDashboardEnv): Promise<HealthSnapshot> {
+export function getHealthSnapshot(env: HealthDashboardEnv): Promise<HealthSnapshot> {
   if (
     cached && cached.configuration === env.HEALTH_CHECKS && cached.token === env.GITHUB_TOKEN &&
     cached.until > Date.now()
@@ -160,7 +175,7 @@ export async function handleHealthDashboard(request: Request, env: HealthDashboa
     )
     return new Response(request.method === 'HEAD' ? null : HEALTH_PAGE, { headers })
   }
-  const health = await snapshot(env)
+  const health = await getHealthSnapshot(env)
   headers.set('Content-Type', 'application/json; charset=utf-8')
   return new Response(request.method === 'HEAD' ? null : JSON.stringify(health), {
     status: health.status === 'operational' ? 200 : 503,
