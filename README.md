@@ -85,7 +85,7 @@ plugin repositories, for example:
 ```json
 [
   { "name": "Router", "repository": "ubiquity/ubq.fi-router", "workflow": "ci.yml", "branch": "main" },
-  { "name": "Example plugin", "repository": "ubiquity-os/example-plugin", "workflow": "tests.yml", "branch": "main" }
+  { "name": "Example plugin", "repository": "ubiquity-os/example-plugin", "kind": "plugin", "workflow": "tests.yml", "branch": "main" }
 ]
 ```
 
@@ -110,6 +110,23 @@ browser credentials. Requests time out after five seconds per GitHub check;
 results (including unavailable states) are cached in the Worker isolate for 60
 seconds, with concurrent requests sharing the same lookup. The page refreshes
 every minute and links each check to its workflow run.
+
+## Dynamic app and plugin maps
+
+The apex router serves `/sitemap.xml`, `/sitemap.json`, `/plugin-map.xml`, and
+`/plugin-map.json`. They reuse the dashboard's cached GitHub check results, so
+requesting both formats does not trigger duplicate checks. The app map includes
+Worker apps, configured public VPS hosts, and the built-in health dashboard;
+unmonitored apps are explicitly `unknown`. Retired hosts and private origin
+addresses are not listed.
+
+Mark plugin checks with `"kind": "plugin"` in `HEALTH_CHECKS`. An optional HTTPS
+`siteUrl` supplies a public deployment URL for an app or plugin; plugins without
+one link to their GitHub repository. App checks without `kind` retain their
+existing behavior. Both maps support read-only `GET`, `HEAD`, and CORS `OPTIONS`.
+See [Sitemap Generation](docs/sitemap.md) for the schema and examples. These are
+cross-host infrastructure inventories, not evidence of live service availability
+or replacements for app-owned, per-host crawler sitemaps.
 
 ## Notes
 
