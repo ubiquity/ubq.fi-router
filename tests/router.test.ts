@@ -26,11 +26,11 @@ function mockFetch(handler: (req: Request) => Response | Promise<Response>): str
   return calls
 }
 
-const mappedEnv = { VPS_ORIGIN_MAP: '{"passport.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi"}' } as Env
+const mappedEnv = { VPS_ORIGIN_MAP: '{"auth.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi"}' } as Env
 
 describe('parseVpsOriginMap', () => {
   test('parses a valid map and normalizes case', () => {
-    expect(parseVpsOriginMap('{"Passport.Ubq.Fi":"Origin.Ubq.Fi"}')).toEqual({ 'passport.ubq.fi': 'origin.ubq.fi' })
+    expect(parseVpsOriginMap('{"Auth.Ubq.Fi":"Origin.Ubq.Fi"}')).toEqual({ 'auth.ubq.fi': 'origin.ubq.fi' })
   })
 
   test('malformed or hostile input yields an empty map', () => {
@@ -66,29 +66,29 @@ describe('health and timeouts', () => {
   })
 })
 
-describe('legacy auth redirect', () => {
+describe('legacy Passport redirect', () => {
   test.each(['GET', 'HEAD', 'POST'])('redirects %s permanently to the fixed Passport origin with its path and query', async (method) => {
     const calls = mockFetch(() => new Response('should not be reached'))
     const path = '//evil.example/authorize?client_id=example&redirect_uri=https%3A%2F%2Fevil.example%2Fcallback'
-    const res = await worker.fetch(new Request(`https://auth.ubq.fi${path}`, { method }), mappedEnv)
+    const res = await worker.fetch(new Request(`https://passport.ubq.fi${path}`, { method }), mappedEnv)
 
     expect(res.status).toBe(308)
-    expect(res.headers.get('location')).toBe(`https://passport.ubq.fi${path}`)
+    expect(res.headers.get('location')).toBe(`https://auth.ubq.fi${path}`)
     expect(res.headers.get('x-uos-router-revision')).toBe('local')
     expect(calls).toHaveLength(0)
   })
 
   test.each(['/__health', '/rpc/1'])('redirects legacy %s before special routing', async (path) => {
     const calls = mockFetch(() => new Response('should not be reached'))
-    const res = await worker.fetch(new Request(`https://auth.ubq.fi${path}`), mappedEnv)
+    const res = await worker.fetch(new Request(`https://passport.ubq.fi${path}`), mappedEnv)
 
     expect(res.status).toBe(308)
-    expect(res.headers.get('location')).toBe(`https://passport.ubq.fi${path}`)
+    expect(res.headers.get('location')).toBe(`https://auth.ubq.fi${path}`)
     expect(calls).toHaveLength(0)
   })
 
   test('does not redirect a hostname that only contains the legacy hostname', async () => {
-    const res = await worker.fetch(new Request('https://auth.ubq.fi.evil.example/login'), mappedEnv)
+    const res = await worker.fetch(new Request('https://passport.ubq.fi.evil.example/login'), mappedEnv)
 
     expect(res.status).toBe(410)
     expect(res.headers.get('location')).toBe(null)
@@ -97,7 +97,7 @@ describe('legacy auth redirect', () => {
 
 describe('VPS routing', () => {
   test('production map proxies Passport with the original host forwarded', async () => {
-    const host = 'passport.ubq.fi'
+    const host = 'auth.ubq.fi'
     const config = Bun.TOML.parse(await Bun.file(new URL('../wrangler.toml', import.meta.url)).text()) as { vars: Env }
     const productionEnv = config.vars
     let seen: Headers | null = null
@@ -135,11 +135,11 @@ describe('VPS routing', () => {
   test('a retryable VPS status marks the origin degraded', async () => {
     const calls = mockFetch(() => new Response('down', { status: 503 }))
 
-    const first = await worker.fetch(new Request('https://passport.ubq.fi/health'), mappedEnv)
+    const first = await worker.fetch(new Request('https://auth.ubq.fi/health'), mappedEnv)
     expect(first.status).toBe(503)
-    expect(originIsDegraded('passport.ubq.fi::origin.ubq.fi')).toBe(true)
+    expect(originIsDegraded('auth.ubq.fi::origin.ubq.fi')).toBe(true)
 
-    const second = await worker.fetch(new Request('https://passport.ubq.fi/health'), mappedEnv)
+    const second = await worker.fetch(new Request('https://auth.ubq.fi/health'), mappedEnv)
     expect(second.status).toBe(502)
     const body = (await second.json()) as { error: string }
     expect(body.error).toBe('origin_degraded')
@@ -147,10 +147,10 @@ describe('VPS routing', () => {
   })
 
   test('a successful response clears the degraded marker', async () => {
-    markOriginDegraded('passport.ubq.fi::origin.ubq.fi', 10_000)
-    expect(originIsDegraded('passport.ubq.fi::origin.ubq.fi')).toBe(true)
+    markOriginDegraded('auth.ubq.fi::origin.ubq.fi', 10_000)
+    expect(originIsDegraded('auth.ubq.fi::origin.ubq.fi')).toBe(true)
     resetOriginHealth()
-    expect(originIsDegraded('passport.ubq.fi::origin.ubq.fi')).toBe(false)
+    expect(originIsDegraded('auth.ubq.fi::origin.ubq.fi')).toBe(false)
   })
 
   test('network failure answers 502 and marks the origin degraded', async () => {
@@ -158,11 +158,11 @@ describe('VPS routing', () => {
       throw new Error('connect timeout')
     })
 
-    const res = await worker.fetch(new Request('https://passport.ubq.fi/health'), mappedEnv)
+    const res = await worker.fetch(new Request('https://auth.ubq.fi/health'), mappedEnv)
 
     expect(res.status).toBe(502)
     expect(calls).toHaveLength(1)
-    expect(originIsDegraded('passport.ubq.fi::origin.ubq.fi')).toBe(true)
+    expect(originIsDegraded('auth.ubq.fi::origin.ubq.fi')).toBe(true)
   })
 })
 

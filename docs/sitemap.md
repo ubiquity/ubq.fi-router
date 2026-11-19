@@ -14,7 +14,7 @@ The router publishes four apex endpoints:
 The app inventory uses the worker's app bindings and public hosts from
 `VPS_ORIGIN_MAP`, plus the built-in health dashboard. Only `ubq.fi` and its valid
 subdomains are taken from the routing map. Private origin addresses, the legacy
-`auth.ubq.fi` redirect, and retired/unconfigured hosts are excluded. The health
+`passport.ubq.fi` redirect, and retired/unconfigured hosts are excluded. The health
 page is checked against this router repository, since the router serves it.
 
 Both inventories reuse `HEALTH_CHECKS` and its existing GitHub workflow checks,
