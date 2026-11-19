@@ -32,7 +32,7 @@ Entry point: `src/worker.ts` (module worker).
 - Responses carry `x-uos-router-revision`; app responses also carry
   `x-uos-router-origin: worker` or `vps`.
 
-The exact legacy host `auth.ubq.fi` returns a 308 redirect to `https://passport.ubq.fi`, preserving the path, query and request method. Deploy the Passport backend and its exact `passport.ubq.fi` Caddy host mapping before activating this router configuration; retain the old VPS Caddy handler for rollback.
+The exact legacy host `passport.ubq.fi` returns a 308 redirect to `https://auth.ubq.fi`, preserving the path, query and request method. Deploy the Passport backend and its exact `auth.ubq.fi` Caddy host mapping before activating this router configuration; retain the old VPS Caddy handler for rollback.
 
 ## App revision footers
 

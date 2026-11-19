@@ -11,7 +11,7 @@ const appHeaders = {
   'x-app-repository': repository,
 }
 const env = {
-  VPS_ORIGIN_MAP: '{"passport.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi"}',
+  VPS_ORIGIN_MAP: '{"auth.ubq.fi":"origin.ubq.fi","ai.ubq.fi":"origin.ubq.fi"}',
 } as Env
 const page = '<!doctype html><html><head><title>App</title></head><body><main>Hello</main><footer>App footer</footer></body></html>'
 
@@ -24,7 +24,7 @@ function serve(body: BodyInit | null = page, init: ResponseInit = {}): Request[]
   return calls
 }
 
-function fetchPage(method = 'GET', host = 'passport.ubq.fi') {
+function fetchPage(method = 'GET', host = 'auth.ubq.fi') {
   return worker.fetch(new Request(`https://${host}/`, { method }), env)
 }
 

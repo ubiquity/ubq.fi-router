@@ -47,7 +47,7 @@ type AppBinding = typeof APP_WORKERS[keyof typeof APP_WORKERS]['binding']
 interface AppService { fetch(request: Request): Promise<Response> }
 const APP_REPOSITORIES: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.entries(APP_WORKERS).map(([host, app]) => [host, app.repository])),
-  'passport.ubq.fi': 'ubiquity/ubiquity-passport',
+  'auth.ubq.fi': 'ubiquity/ubiquity-passport',
   'ai.ubq.fi': 'ubiquity/ai.ubq.fi',
   'checkout.ubq.fi': 'ubiquity/checkout.ubq.fi',
   'health.ubq.fi': 'ubiquity/health.ubq.fi',
@@ -98,8 +98,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
 
-    if (url.hostname === 'auth.ubq.fi') {
-      return withRouterRevision(Response.redirect(`https://passport.ubq.fi${url.pathname}${url.search}`, 308))
+    if (url.hostname === 'passport.ubq.fi') {
+      return withRouterRevision(Response.redirect(`https://auth.ubq.fi${url.pathname}${url.search}`, 308))
     }
 
     if (url.pathname === '/__health') {
@@ -135,7 +135,7 @@ export default {
         'health.ubq.fi',
       ])
       return [...hosts]
-        .filter((host) => /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*ubq\.fi$/.test(host) && host !== 'auth.ubq.fi')
+        .filter((host) => /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*ubq\.fi$/.test(host) && host !== 'passport.ubq.fi')
         .map((host) => ({
           url: `https://${host}/`,
           repository: host === 'health.ubq.fi' ? 'ubiquity/ubq.fi-router' : APP_REPOSITORIES[host],

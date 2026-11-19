@@ -88,7 +88,7 @@ describe('production revision footer integration', () => {
   )
 
   test.each([
-    ['passport.ubq.fi', 'ubiquity/ubiquity-passport'],
+    ['auth.ubq.fi', 'ubiquity/ubiquity-passport'],
     ['ai.ubq.fi', 'ubiquity/ai.ubq.fi'],
     ['checkout.ubq.fi', 'ubiquity/checkout.ubq.fi'],
     ['health.ubq.fi', 'ubiquity/health.ubq.fi'],

@@ -140,10 +140,10 @@ describe('dynamic map endpoints', () => {
       checks: [{ repository: 'UBIQUITY/UBQ.FI', status: 'operational', url: 'https://github.com/UBIQUITY/UBQ.FI/actions/runs/42' }],
     })
     expect(map.entries.find((entry) => entry.url === 'https://probe.ubq.fi/')).toMatchObject({ status: 'unknown', checks: [] })
-    for (const host of ['stake.ubq.fi', 'kv.ubq.fi', 'health.ubq.fi', 'passport.ubq.fi']) {
+    for (const host of ['stake.ubq.fi', 'kv.ubq.fi', 'health.ubq.fi', 'auth.ubq.fi']) {
       expect(map.entries.some((entry) => entry.url === `https://${host}/`)).toBe(true)
     }
-    for (const hidden of ['private-origin.example', 'map-private-value', 'auth.ubq.fi', 'bad@host', 'not-ours.example']) {
+    for (const hidden of ['private-origin.example', 'map-private-value', 'passport.ubq.fi', 'bad@host', 'not-ours.example']) {
       expect(text).not.toContain(hidden)
     }
     expect(calls).toHaveLength(1)
@@ -254,9 +254,9 @@ describe('dynamic map endpoints', () => {
     expect(await upstream.text()).toBe('app sitemap')
     const retired = await worker.fetch(new Request('https://retired.ubq.fi/plugin-map.json'), {})
     expect(retired.status).toBe(410)
-    const legacy = await worker.fetch(new Request('https://auth.ubq.fi/sitemap.xml'), {})
+    const legacy = await worker.fetch(new Request('https://passport.ubq.fi/sitemap.xml'), {})
     expect(legacy.status).toBe(308)
-    expect(legacy.headers.get('location')).toBe('https://passport.ubq.fi/sitemap.xml')
+    expect(legacy.headers.get('location')).toBe('https://auth.ubq.fi/sitemap.xml')
     expect(calls).toHaveLength(0)
   })
 })
