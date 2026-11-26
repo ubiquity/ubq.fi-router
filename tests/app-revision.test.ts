@@ -24,8 +24,8 @@ function serve(body: BodyInit | null = page, init: ResponseInit = {}): Request[]
   return calls
 }
 
-function fetchPage(method = 'GET', host = 'auth.ubq.fi') {
-  return worker.fetch(new Request(`https://${host}/`, { method }), env)
+function fetchPage(method = 'GET', host = 'auth.ubq.fi', headers: HeadersInit = {}) {
+  return worker.fetch(new Request(`https://${host}/`, { method, headers }), env)
 }
 
 afterEach(() => {
@@ -175,6 +175,12 @@ describe('app revision footers', () => {
     expect(await (await fetchPage()).text()).toBe(page)
   })
 
+  test('honors request no-transform directive', async () => {
+    serve()
+    const response = await fetchPage('GET', 'auth.ubq.fi', { 'cache-control': 'public, no-transform' })
+    expect(await response.text()).toBe(page)
+  })
+
   test.each<Record<string, string>>([
     {},
     { 'x-app-repository': repository },
@@ -199,12 +205,14 @@ describe('app revision footers', () => {
       etag: '"original"',
       'content-md5': 'original-md5',
       digest: 'sha-256=original',
+      'content-digest': 'sha-256=original',
+      'repr-digest': 'sha-256=original',
       'x-custom': 'preserved',
       'cache-control': 'public, max-age=60',
     } })
     const response = await fetchPage()
     expect(await response.text()).toContain('data-uos-app-revision')
-    for (const name of ['content-length', 'etag', 'content-md5', 'digest']) {
+    for (const name of ['content-length', 'etag', 'content-md5', 'digest', 'content-digest', 'repr-digest']) {
       expect(response.headers.has(name)).toBe(false)
     }
     expect(response.headers.get('x-custom')).toBe('preserved')
